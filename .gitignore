@@ -1,0 +1,12 @@
+.env
+.venv/
+.venv_old/
+__pycache__/
+*.py[cod]
+db.sqlite3
+media/
+avatars/
+
+
+"access": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ0b2tlbl90eXBlIjoiYWNjZXNzIiwiZXhwIjoxNzkxNzM2Njk1LCJpYXQiOjE3OTE3MzU3OTUsImp0aSI6ImE2OWYzYmY4ZGQyOTQ2NDA4ZDQzNDY3MzNhNzg0YTdjIiwidXNlcl9pZCI6IjIifQ.RUlx1LkCmj3zWDNY22vA1QTTgrdGQSHPxFLabMgeUzA",
+"refresh": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ0b2tlbl90eXBlIjoicmVmcmVzaCIsImV4cCI6MTc5NDMyNzc5NSwiaWF0IjoxNzkxNzM1Nzk1LCJqdGkiOiI1M2RmNGMxYzM3ZGU0NDQ1YmY2MzZiZjQ0MzJhYzZjMyIsInVzZXJfaWQiOiIyIn0.TlF0FvlU7S1n3IhzRr2naIiUOeAx-DOs1Uv7VAgNbOY",
