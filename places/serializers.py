@@ -1,6 +1,7 @@
-
+from rest_framework.pagination import PageNumberPagination
 from rest_framework import serializers
 from rest_framework_gis.fields import GeometryField
+from drf_spectacular.utils import extend_schema_field
 
 from .models import Category, Brand, Place, PlacePhoto, Favorite
 
@@ -67,8 +68,10 @@ class CategorySerializer(
         model = Category
         fields = ["id", "name", "slug", "icon"]
 
+    @extend_schema_field(serializers.CharField())
     def get_name(self, obj):
         return self.translated(obj.name)
+
 
 
 class BrandSerializer(
@@ -81,9 +84,9 @@ class BrandSerializer(
         model = Brand
         fields = ["id", "name", "slug", "branches_count"]
 
+    @extend_schema_field(serializers.CharField())
     def get_name(self, obj):
         return self.translated(obj.name)
-
 
 class PlacePhotoSerializer(serializers.ModelSerializer):
     class Meta:
@@ -121,12 +124,15 @@ class PlaceListSerializer(
             "status",
         ]
 
+    @extend_schema_field(serializers.CharField())
     def get_name(self, obj):
         return self.translated(obj.name)
 
+    @extend_schema_field(serializers.CharField())
     def get_subcategory(self, obj):
         return self.translated(obj.subcategory)
 
+    @extend_schema_field(serializers.CharField())
     def get_address(self, obj):
         return self.translated(obj.address)
 
@@ -149,12 +155,13 @@ class PlaceDetailSerializer(PlaceListSerializer):
             "updated_at",
         ]
 
+    @extend_schema_field(serializers.CharField())
     def get_about(self, obj):
         return self.translated(obj.about)
 
+    @extend_schema_field(serializers.CharField())
     def get_opening_hours(self, obj):
         return self.translated(obj.opening_hours)
-
 
 
 
@@ -167,11 +174,23 @@ class FavoriteSerializer(serializers.ModelSerializer):
         fields = ["id", "place", "place_name", "place_slug", "created_at"]
         read_only_fields = ["id", "place_name", "place_slug", "created_at"]
 
+    @extend_schema_field(serializers.CharField())
     def get_place_name(self, obj):
         language = self.context.get("language", "ru")
         name = obj.place.name
 
         if isinstance(name, dict):
-            return name.get(language) or name.get("ru") or next(iter(name.values()), "")
+            return (
+                name.get(language)
+                or name.get("ru")
+                or next(iter(name.values()), "")
+            )
 
         return name
+
+
+class PlacePaginationSerializer(serializers.Serializer):
+    count = serializers.IntegerField()
+    next = serializers.URLField(allow_null=True)
+    previous = serializers.URLField(allow_null=True)
+    results = PlaceListSerializer(many=True)

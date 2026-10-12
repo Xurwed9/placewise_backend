@@ -176,3 +176,39 @@ class FavoriteAPITests(TestCase):
             response.status_code,
             status.HTTP_401_UNAUTHORIZED,
         )
+
+
+
+
+    def test_add_favorite_with_missing_place(self):
+        response = self.client.post(
+            "/api/v1/favorites/",
+            {"place": 999999},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+        self.assertEqual(Favorite.objects.count(), 0)
+
+    def test_add_unpublished_place_to_favorites(self):
+        draft_place = Place.objects.create(
+            category=self.category,
+            name={"ru": "Черновик"},
+            slug="favorite-test-draft-place",
+            address={"ru": "Душанбе"},
+            status=Place.Status.DRAFT,
+        )
+
+        response = self.client.post(
+            "/api/v1/favorites/",
+            {"place": draft_place.id},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND) 
+        self.assertFalse(
+            Favorite.objects.filter(
+                user=self.user,
+                place=draft_place,
+            ).exists()
+        )
