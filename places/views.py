@@ -38,7 +38,7 @@ from .serializers import (
     FavoriteSerializer,
     PlacePaginationSerializer,
     OwnerPlaceUpdateSerializer, ClaimCreateSerializer,
-    ClaimSerializer,
+    ClaimSerializer, AdminPlaceUpdateSerializer,
 )
 from reviews.models import Review
 from reviews.serializers import ReviewSerializer
@@ -1159,10 +1159,35 @@ def admin_claim_review(request, claim_id):
 
 
 
+
 @extend_schema(
     tags=["Uploads"],
     summary="Бор кардани акс",
     description="JPG, PNG ё WebP, андозаи максималӣ 10 MB.",
+    request=inline_serializer(
+        name="UploadImageRequest",
+        fields={
+            "file": serializers.ImageField(),
+        },
+    ),
+    
+    responses={
+        201: inline_serializer(
+            name="UploadImageResponse",
+            fields={
+                "url": serializers.URLField(),
+                "filename": serializers.CharField(),
+                "size": serializers.IntegerField(),
+                "format": serializers.CharField(),
+            },
+        ),
+        400: inline_serializer(
+            name="UploadImageError",
+            fields={
+                "detail": serializers.CharField(),
+            },
+        ),
+    },
 )
 @api_view(["POST"])
 @permission_classes([IsAuthenticated])
@@ -1227,4 +1252,154 @@ def upload_image(request):
         },
         status=status.HTTP_201_CREATED,
     )
+
+
+
+
+@api_view(["POST"])
+@permission_classes([IsPlacewiseAdmin])
+def admin_place_publish(request, place_id):
+    """Нашр кардани ҷой аз ҷониби администратор."""
+
+    place = get_object_or_404(Place, id=place_id)
+
+    if place.status == Place.Status.PUBLISHED:
+        return Response({
+            "detail": "Ин ҷой аллакай нашр шудааст."
+        })
+
+    place.status = Place.Status.PUBLISHED
+    place.save(update_fields=["status", "updated_at"])
+
+    return Response({
+        "detail": "Ҷой бомуваффақият нашр шуд.",
+        "id": place.id,
+        "name": place.name,
+        "status": place.status,
+    })
+
+
+
+
+@api_view(["POST"])
+@permission_classes([IsPlacewiseAdmin])
+def admin_place_hide(request, place_id):
+    place = get_object_or_404(Place, id=place_id)
+
+    if place.status == Place.Status.HIDDEN:
+        return Response({"detail": "Ин ҷой аллакай пинҳон аст."})
+
+    place.status = Place.Status.HIDDEN
+    place.save(update_fields=["status", "updated_at"])
+
+    return Response({
+        "detail": "Ҷой бомуваффақият пинҳон шуд.",
+        "id": place.id,
+        "name": place.name,
+        "status": place.status,
+    })
+
+
+
+@extend_schema(
+    parameters=[
+        OpenApiParameter(
+            name="status",
+            type=OpenApiTypes.STR,
+            location=OpenApiParameter.QUERY,
+            required=False,
+            enum=["draft", "published", "hidden"],
+        ),
+        OpenApiParameter(
+            name="search",
+            type=OpenApiTypes.STR,
+            location=OpenApiParameter.QUERY,
+            required=False,
+            description="Ҷустуҷӯ аз рӯйи номи ҷой",
+        ),
+        OpenApiParameter(
+            name="page",
+            type=OpenApiTypes.INT,
+            location=OpenApiParameter.QUERY,
+            required=False,
+        ),
+        OpenApiParameter(
+            name="page_size",
+            type=OpenApiTypes.INT,
+            location=OpenApiParameter.QUERY,
+            required=False,
+        ),
+    ],
+    responses=inline_serializer(
+        name="AdminPlacesPaginatedResponse",
+        fields={
+            "count": serializers.IntegerField(),
+            "next": serializers.URLField(
+                allow_null=True,
+            ),
+            "previous": serializers.URLField(
+                allow_null=True,
+            ),
+            "results": PlaceListSerializer(many=True),
+        },
+    ),
+)
+@api_view(["GET"])
+@permission_classes([IsPlacewiseAdmin])
+def admin_places_list(request):
+    places = Place.objects.all()
+
+    status_filter = request.query_params.get("status")
+    search = request.query_params.get("search")
+
+    if status_filter in ["draft", "published", "hidden"]:
+        places = places.filter(status=status_filter)
+
+    if search:
+        places = places.filter(
+            Q(name__icontains=search)
+        )
+
+    paginator = AdminPlacePagination()
+    page = paginator.paginate_queryset(places, request)
+
+    serializer = PlaceListSerializer(
+        page,
+        many=True,
+        context={"request": request},
+    )
+
+    return paginator.get_paginated_response(serializer.data)
+
+
+
+
+class AdminPlacePagination(PageNumberPagination):
+    page_size = 20
+    page_size_query_param = "page_size"
+    max_page_size = 100
+
+
+
+@extend_schema(request=AdminPlaceUpdateSerializer)
+@api_view(["PATCH"])
+@permission_classes([IsPlacewiseAdmin])
+def admin_place_update(request, place_id):
+    place = get_object_or_404(Place, id=place_id)
+
+    serializer = AdminPlaceUpdateSerializer(
+        place,
+        data=request.data,
+        partial=True,
+    )
+
+    serializer.is_valid(raise_exception=True)
+    serializer.save()
+
+    return Response({
+        "detail": "Маълумоти ҷой нав карда шуд.",
+        "id": place.id,
+        "name": place.name,
+        "status": place.status,
+    })
 
