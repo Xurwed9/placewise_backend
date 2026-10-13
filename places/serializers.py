@@ -3,7 +3,7 @@ from rest_framework import serializers
 from rest_framework_gis.fields import GeometryField
 from drf_spectacular.utils import extend_schema_field
 
-from .models import Category, Brand, Place, PlacePhoto, Favorite
+from .models import Category, Brand, Place, PlacePhoto, Favorite, Claim
 
 
 SUPPORTED_LANGUAGES = {"ru", "tg", "en"}
@@ -63,15 +63,23 @@ class CategorySerializer(
     serializers.ModelSerializer,
 ):
     name = serializers.SerializerMethodField()
+    place_count = serializers.IntegerField(read_only=True)
 
     class Meta:
         model = Category
-        fields = ["id", "name", "slug", "icon"]
+        fields = [
+            "id",
+            "name",
+            "key",
+            "slug",
+            "icon",
+            "image",
+            "place_count",
+        ]
 
     @extend_schema_field(serializers.CharField())
     def get_name(self, obj):
         return self.translated(obj.name)
-
 
 
 class BrandSerializer(
@@ -80,13 +88,24 @@ class BrandSerializer(
 ):
     name = serializers.SerializerMethodField()
 
+    
     class Meta:
         model = Brand
-        fields = ["id", "name", "slug", "branches_count"]
+        fields = [
+            "id",
+            "name",
+            "slug",
+            "branches_count",
+            "logo",
+            "website",
+            "instagram",
+        ]
+
 
     @extend_schema_field(serializers.CharField())
     def get_name(self, obj):
         return self.translated(obj.name)
+
 
 class PlacePhotoSerializer(serializers.ModelSerializer):
     class Meta:
@@ -194,3 +213,83 @@ class PlacePaginationSerializer(serializers.Serializer):
     next = serializers.URLField(allow_null=True)
     previous = serializers.URLField(allow_null=True)
     results = PlaceListSerializer(many=True)
+
+
+
+
+
+class OwnerPlaceUpdateSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Place
+        fields = [
+            "name",
+            "about",
+            "subcategory",
+            "address",
+            "district",
+            "phones",
+            "website",
+            "opening_hours",
+            "price_level",
+        ]
+
+    def validate_price_level(self, value):
+        if value is not None and value not in (1, 2, 3, 4):
+            raise serializers.ValidationError(
+                "price_level бояд аз 1 то 4 бошад ё null бошад."
+            )
+        return value
+
+    def validate_phones(self, value):
+        if not isinstance(value, list):
+            raise serializers.ValidationError(
+                "phones бояд рӯйхати рақамҳои телефон бошад."
+            )
+
+        if len(value) > 20:
+            raise serializers.ValidationError(
+                "На бештар аз 20 рақами телефон иҷозат аст."
+            )
+
+        return value
+
+
+
+
+class ClaimCreateSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Claim
+        fields = ["place", "document_url"]
+
+    def validate_place(self, value):
+        if value.status != Place.Status.PUBLISHED:
+            raise serializers.ValidationError(
+                "Барои ин ҷой дархост фиристодан мумкин нест."
+            )
+        return value
+
+
+class ClaimSerializer(serializers.ModelSerializer):
+    user_phone = serializers.CharField(
+        source="user.phone",
+        read_only=True,
+    )
+    place_slug = serializers.CharField(
+        source="place.slug",
+        read_only=True,
+    )
+
+    class Meta:
+        model = Claim
+        fields = [
+            "id",
+            "place",
+            "place_slug",
+            "user",
+            "user_phone",
+            "document_url",
+            "status",
+            "created_at",
+        ]
+        read_only_fields = fields
+

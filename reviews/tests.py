@@ -51,7 +51,10 @@ class PlaceReviewsTests(TestCase):
 
         response = self.client.post(
             self.url,
-            {"rating": 5, "text": "Отличное место"},
+            {"rating": 5, "text": (
+            "Ин ҷой хеле хуб аст, хизматрасонӣ босифат мебошад "
+            "ва кормандон бо мизоҷон муносибати хуб доранд."
+            ),},
             format="json",
         )
 
@@ -92,7 +95,10 @@ class PlaceReviewsTests(TestCase):
 
         response = self.client.post(
             self.url,
-            {"rating": 5, "text": "Хорошее место"},
+            {"rating": 5, "text": (
+            "Ин ҷой хеле хуб аст, хизматрасонӣ босифат мебошад "
+            "ва кормандон бо мизоҷон муносибати хуб доранд."
+            ),},
             format="json",
         )
 

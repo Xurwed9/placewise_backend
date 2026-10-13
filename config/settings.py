@@ -126,7 +126,7 @@ AUTH_PASSWORD_VALIDATORS = [
 
 LANGUAGE_CODE = 'en-us'
 
-TIME_ZONE = 'UTC'
+TIME_ZONE = "Asia/Dushanbe"
 
 USE_I18N = True
 
@@ -177,12 +177,68 @@ SIMPLE_JWT = {
 }
 
 
+
 SPECTACULAR_SETTINGS = {
-    "TITLE": "Placewise API",
-    "DESCRIPTION": "Placewise Dushanbe API",
+    "TITLE": "Placewise Душанбе API",
+    "DESCRIPTION": """
+Placewise — API-и феҳристи ҷойҳои Душанбе.
+
+Гурӯҳҳои асосӣ:
+- Places & Categories — ҷойҳо ва категорияҳо
+- Search & Home — ҷустуҷӯ ва саҳифаи асосӣ
+- Authentication & Profile — воридшавӣ ва профил
+- Reviews — отзывҳо, лайк ва шикоят
+- Moderation — санҷиши отзывҳо
+- Favorites — ҷойҳои дӯстдошта
+- Owner — API-и соҳибони ҷойҳо
+""",
     "VERSION": "1.0.0",
     "COMPONENT_SPLIT_REQUEST": True,
+    "SORT_OPERATIONS": True,
+    "TAGS": [
+        {
+            "name": "Places",
+            "description": "Рӯйхат, маълумот, харита ва ҷойҳои монанд.",
+        },
+        {
+            "name": "Categories",
+            "description": "Категорияҳои ҷойҳо.",
+        },
+        {
+            "name": "Search & Home",
+            "description": "Ҷустуҷӯ, пешниҳодҳо ва саҳифаи асосӣ.",
+        },
+        {
+            "name": "Authentication & Profile",
+            "description": "Рамзи тасдиқ, JWT ва профили корбар.",
+        },
+        {
+            "name": "Reviews",
+            "description": "Сохтан, хондан, таҳрир ва нест кардани отзывҳо.",
+        },
+        {
+            "name": "Review Likes & Reports",
+            "description": "Лайк ва шикоят аз отзывҳо.",
+        },
+        {
+            "name": "Moderation",
+            "description": "Нашр ё рад кардани отзывҳо.",
+        },
+        {
+            "name": "Favorites",
+            "description": "Идоракунии ҷойҳои дӯстдошта.",
+        },
+        {
+            "name": "Owner",
+            "description": "Идоракунии ҷойҳо ва ҷавоб ба отзывҳо.",
+        },
+        {
+            "name": "Admin",
+            "description": "Амалиётҳои маъмурӣ.",
+        },
+    ],
 }
+
 
 
 MEDIA_URL = "/media/"

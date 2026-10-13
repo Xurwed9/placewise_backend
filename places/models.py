@@ -4,9 +4,20 @@ from django.contrib.gis.db import models
 from django.db.models import Q
 
 
+
 class Category(models.Model):
     name = models.JSONField(default=dict)
     slug = models.SlugField(max_length=150, unique=True)
+
+    key = models.SlugField(
+    max_length=150,
+    unique=True,
+    )
+    image = models.ImageField(
+        upload_to="categories/",
+        blank=True,
+    )
+
     icon = models.CharField(max_length=100, blank=True)
     is_active = models.BooleanField(default=True)
     sort_order = models.PositiveIntegerField(default=0)
@@ -22,10 +33,25 @@ class Category(models.Model):
         return self.slug
 
 
+
+
 class Brand(models.Model):
     name = models.JSONField(default=dict)
     slug = models.SlugField(max_length=200, unique=True)
     branches_count = models.PositiveIntegerField(default=1)
+
+    logo = models.ImageField(
+        upload_to="brands/",
+        blank=True,
+    )
+    website = models.URLField(
+        max_length=500,
+        blank=True,
+    )
+    instagram = models.URLField(
+        max_length=500,
+        blank=True,
+    )
 
     created_at = models.DateTimeField(auto_now_add=True)
 
@@ -35,6 +61,7 @@ class Brand(models.Model):
 
     def __str__(self):
         return self.slug
+
 
 
 class Place(models.Model):
@@ -189,3 +216,44 @@ class Favorite(models.Model):
 
     def __str__(self):
         return f"{self.user} - {self.place}"
+
+
+
+
+class Claim(models.Model):
+    class Status(models.TextChoices):
+        PENDING = "pending", "Дар интизорӣ"
+        APPROVED = "approved", "Тасдиқ шуд"
+        REJECTED = "rejected", "Рад шуд"
+
+    place = models.ForeignKey(
+        Place,
+        on_delete=models.CASCADE,
+        related_name="claims",
+    )
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="place_claims",
+    )
+    document_url = models.URLField(max_length=1000)
+    status = models.CharField(
+        max_length=20,
+        choices=Status.choices,
+        default=Status.PENDING,
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["place", "user"],
+                condition=models.Q(status="pending"),
+                name="unique_pending_claim_per_user_place",
+            ),
+        ]
+
+    def __str__(self):
+        return f"{self.user} - {self.place} ({self.status})"
+

@@ -7,7 +7,11 @@ from .views import (
     place_map,
     similar_places,
     favorite_list,
-    favorite_delete,
+    favorite_delete,home,
+    search_suggest, owner_place_update, owner_places,
+    owner_review_reply,
+    claim_create, admin_claim_list, admin_claim_review,
+    upload_image,
 )
 
 urlpatterns = [
@@ -28,4 +32,27 @@ urlpatterns = [
         favorite_delete,
         name="favorite-delete",
     ),
+    path("home/", home, name="home"),
+    path(
+    "search/suggest/",
+    search_suggest,
+    name="search-suggest",
+    ),
+    path("owner/places/", owner_places, name="owner-places"),
+    path(
+    "owner/places/<int:place_id>/",
+    owner_place_update,
+    name="owner-place-update",
+    ),
+    path(
+    "owner/reviews/<int:review_id>/reply/",
+    owner_review_reply,
+    name="owner-review-reply", ),
+    path("claims/", claim_create, name="claim-create"),
+    path("admin/claims/", admin_claim_list, name="admin-claim-list"),
+    path(
+    "admin/claims/<int:claim_id>/",
+    admin_claim_review,
+    name="admin-claim-review",),
+    path("uploads/", upload_image, name="upload-image"),
 ]

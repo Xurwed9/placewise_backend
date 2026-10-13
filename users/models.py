@@ -38,12 +38,27 @@ class User(AbstractUser):
         default=False,
         verbose_name="Заблокирован",
     )
+    class Role(models.TextChoices):
+        USER = "user", "Корбари оддӣ"
+        OWNER = "owner", "Соҳиби ҷой"
+        MODERATOR = "moderator", "Модератор"
+        ADMIN = "admin", "Админ"
+
+    role = models.CharField(
+        max_length=20,
+        choices=Role.choices,
+        default=Role.USER,
+        db_index=True,
+        verbose_name="Нақш",
+    )
 
     USERNAME_FIELD = "phone"
     REQUIRED_FIELDS = ["username"]
 
     def __str__(self):
         return self.phone
+
+
 
 
 
