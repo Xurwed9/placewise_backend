@@ -5,7 +5,7 @@ from rest_framework.test import APIClient
 
 from places.models import Category, Place
 from reviews.models import Review
-
+from notifications.models import Notification
 
 User = get_user_model()
 
@@ -153,4 +153,155 @@ class PlaceReviewsTests(TestCase):
 
         self.assertEqual(float(self.place.rating), 0.0)
         self.assertEqual(self.place.reviews_count, 0)
+
+
+
+
+class ReviewNotificationIntegrationTests(TestCase):
+    @classmethod
+    def setUpTestData(cls):
+        cls.reviewer = User.objects.create_user(
+            username="integration_reviewer",
+            phone="+992900000021",
+            name="Review Author",
+            language="tg",
+        )
+
+        cls.moderator = User.objects.create_user(
+            username="integration_moderator",
+            phone="+992900000022",
+            name="Moderator",
+            role="moderator",
+            is_staff=True,
+        )
+
+        cls.owner = User.objects.create_user(
+            username="integration_owner",
+            phone="+992900000023",
+            name="Place Owner",
+            role="owner",
+        )
+
+        cls.category = Category.objects.create(
+            name={"ru": "Кафе", "tg": "Қаҳвахона", "en": "Cafe"},
+            slug="integration-notification-category",
+        )
+
+        cls.place = Place.objects.create(
+            category=cls.category,
+            name={"ru": "Тестовое кафе"},
+            slug="integration-notification-place",
+            address={"ru": "Душанбе"},
+            status=Place.Status.PUBLISHED,
+            owner=cls.owner,
+        )
+
+    def setUp(self):
+        self.client = APIClient()
+
+    def create_review(self, status_value=Review.Status.PENDING):
+        return Review.objects.create(
+            user=self.reviewer,
+            place=self.place,
+            rating=5,
+            text=(
+                "Ин ҷой хеле хуб аст ва хизматрасонӣ босифат мебошад. "
+                "Кормандон бо мизоҷон муносибати хуб доранд."
+            ),
+            status=status_value,
+        )
+
+    def test_approval_creates_notification(self):
+        review = self.create_review()
+        self.client.force_authenticate(user=self.moderator)
+
+        response = self.client.post(
+            f"/api/v1/moderation/reviews/{review.id}/",
+            {"action": "approve"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 200)
+
+        notification = Notification.objects.get(
+            user=self.reviewer,
+            review=review,
+        )
+        self.assertEqual(
+            notification.notification_type,
+            Notification.Type.REVIEW_APPROVED,
+        )
+        self.assertEqual(notification.title, "Отзыв нашр шуд")
+
+    def test_rejection_creates_notification_with_reason(self):
+        review = self.create_review()
+        self.client.force_authenticate(user=self.moderator)
+
+        response = self.client.post(
+            f"/api/v1/moderation/reviews/{review.id}/",
+            {
+                "action": "reject",
+                "reason": "Маълумоти нокифоя",
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 200)
+
+        notification = Notification.objects.get(
+            user=self.reviewer,
+            review=review,
+        )
+        self.assertEqual(
+            notification.notification_type,
+            Notification.Type.REVIEW_REJECTED,
+        )
+        self.assertIn("Маълумоти нокифоя", notification.message)
+
+    def test_owner_reply_creates_notification(self):
+        review = self.create_review(Review.Status.APPROVED)
+        self.client.force_authenticate(user=self.owner)
+
+        response = self.client.post(
+            f"/api/v1/owner/reviews/{review.id}/reply/",
+            {"reply": "Ташаккур барои фикри шумо!"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 200)
+
+        notification = Notification.objects.get(
+            user=self.reviewer,
+            review=review,
+        )
+        self.assertEqual(
+            notification.notification_type,
+            Notification.Type.OWNER_REPLY,
+        )
+        self.assertEqual(notification.title, "Ҷавоби соҳиби ҷой")
+
+    def test_unrelated_user_cannot_reply_to_review(self):
+        stranger = User.objects.create_user(
+            username="integration_stranger",
+            phone="+992900000024",
+            name="Stranger",
+        )
+        review = self.create_review(Review.Status.APPROVED)
+        self.client.force_authenticate(user=stranger)
+
+        response = self.client.post(
+            f"/api/v1/owner/reviews/{review.id}/reply/",
+            {"reply": "Ҷавоб"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 403)
+        self.assertFalse(
+            Notification.objects.filter(
+                user=self.reviewer,
+                review=review,
+                notification_type=Notification.Type.OWNER_REPLY,
+            ).exists()
+        )
+
 

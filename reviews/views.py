@@ -24,7 +24,6 @@ from users.permissions import IsModeratorOrAdmin
 from drf_spectacular.utils import extend_schema
 
 
-
 from places.models import Place
 
 from .models import Review, ReviewLike, ReviewReport
@@ -34,6 +33,7 @@ from .serializers import (
     ReviewUpdateSerializer,
     ReviewReportSerializer,
 )
+from notifications.models import Notification
 
 
 def user_can_act(user):
@@ -383,6 +383,49 @@ def moderate_review(request, review_id):
             "updated_at",
         ]
     )
+
+    language = getattr(review.user, "language", "ru")
+
+    messages = {
+        "ru": {
+            "approved_title": "Отзыв опубликован",
+            "approved_message": "Ваш отзыв опубликован.",
+            "rejected_title": "Отзыв отклонён",
+            "rejected_message": "Ваш отзыв отклонён. Причина: ",
+        },
+        "tg": {
+            "approved_title": "Отзыв нашр шуд",
+            "approved_message": "Отзыви шумо нашр шуд.",
+            "rejected_title": "Отзыв рад шуд",
+            "rejected_message": "Отзыви шумо рад шуд. Сабаб: ",
+        },
+        "en": {
+            "approved_title": "Review published",
+            "approved_message": "Your review has been published.",
+            "rejected_title": "Review rejected",
+            "rejected_message": "Your review was rejected. Reason: ",
+        },
+    }
+
+    text = messages.get(language, messages["ru"])
+
+    if action == "approve":
+        title = text["approved_title"]
+        message = text["approved_message"]
+        notification_type = Notification.Type.REVIEW_APPROVED
+    else:
+        title = text["rejected_title"]
+        message = text["rejected_message"] + reason
+        notification_type = Notification.Type.REVIEW_REJECTED
+
+    Notification.objects.create(
+        user=review.user,
+        notification_type=notification_type,
+        title=title,
+        message=message,
+        review=review,
+    )
+
 
     return Response({
         "detail": (

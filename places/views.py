@@ -42,6 +42,7 @@ from .serializers import (
 )
 from reviews.models import Review
 from reviews.serializers import ReviewSerializer
+from notifications.models import Notification
 
 
 class PlacePagination(PageNumberPagination):
@@ -308,6 +309,7 @@ def place_list(request):
     lat = request.query_params.get("lat")
     lon = request.query_params.get("lon")
     radius = request.query_params.get("radius", "5")
+    open_now = request.query_params.get("open_now")
 
     location_point = None
 
@@ -356,7 +358,6 @@ def place_list(request):
                 D(km=radius_value),
             ),
         )
-        open_now = request.query_params.get("open_now")
 
     if open_now not in (None, ""):
         if open_now.lower() not in {"true", "false"}:
@@ -1015,6 +1016,34 @@ def owner_review_reply(request, review_id):
     review.save(
         update_fields=["owner_reply", "owner_reply_at", "updated_at"]
     )
+
+    language = getattr(review.user, "language", "ru")
+
+    messages = {
+        "ru": (
+            "Ответ владельца",
+            "Владелец места ответил на ваш отзыв.",
+        ),
+        "tg": (
+            "Ҷавоби соҳиби ҷой",
+            "Соҳиби ҷой ба отзыви шумо ҷавоб дод.",
+        ),
+        "en": (
+            "Owner reply",
+            "The place owner replied to your review.",
+        ),
+    }
+
+    title, message = messages.get(language, messages["ru"])
+
+    Notification.objects.create(
+        user=review.user,
+        notification_type=Notification.Type.OWNER_REPLY,
+        title=title,
+        message=message,
+        review=review,
+    )
+
 
     return Response({
         "detail": "Ҷавоб сабт шуд.",
