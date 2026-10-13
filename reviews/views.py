@@ -21,8 +21,8 @@ from rest_framework.decorators import api_view
 from rest_framework.response import Response
 from rest_framework.decorators import permission_classes
 from users.permissions import IsModeratorOrAdmin
-from drf_spectacular.utils import extend_schema
-
+from drf_spectacular.utils import extend_schema, inline_serializer, OpenApiParameter
+from rest_framework import serializers
 
 from places.models import Place
 
@@ -32,6 +32,7 @@ from .serializers import (
     ReviewCreateSerializer,
     ReviewUpdateSerializer,
     ReviewReportSerializer,
+    ModerateReviewSerializer,
 )
 from notifications.models import Notification
 
@@ -44,6 +45,20 @@ def user_can_act(user):
     )
 
 
+
+@extend_schema(
+    request=ReviewCreateSerializer,
+    responses={
+        200: ReviewSerializer(many=True),
+        201: inline_serializer(
+            name="ReviewCreateResponse",
+            fields={
+                "detail": serializers.CharField(),
+                "review": ReviewSerializer(),
+            },
+        ),
+    },
+)
 @api_view(["GET", "POST"])
 def place_reviews(request, slug):
     """Гирифтан ва фиристодани отзывҳои ҷой."""
@@ -137,6 +152,19 @@ def place_reviews(request, slug):
     )
 
 
+@extend_schema(
+    request=ReviewUpdateSerializer,
+    responses={
+        200: inline_serializer(
+            name="ReviewUpdateResponse",
+            fields={
+                "detail": serializers.CharField(),
+                "review": ReviewSerializer(),
+            },
+        ),
+        204: None,
+    },
+)
 @api_view(["PATCH", "DELETE"])
 def review_detail(request, review_id):
     """Таҳрир ё нест кардани отзыви худи корбар."""
@@ -187,6 +215,27 @@ def review_detail(request, review_id):
     )
 
 
+@extend_schema(
+    request=None,
+    responses={
+        200: inline_serializer(
+            name="ReviewLikeResponse",
+            fields={
+                "detail": serializers.CharField(),
+                "likes_count": serializers.IntegerField(),
+                "is_liked": serializers.BooleanField(),
+            },
+        ),
+        201: inline_serializer(
+            name="ReviewLikeCreatedResponse",
+            fields={
+                "detail": serializers.CharField(),
+                "likes_count": serializers.IntegerField(),
+                "is_liked": serializers.BooleanField(),
+            },
+        ),
+    },
+)
 @api_view(["POST", "DELETE"])
 def review_like(request, review_id):
     """Гузоштан ё гирифтани лайк."""
@@ -247,6 +296,18 @@ def review_like(request, review_id):
     )
 
 
+@extend_schema(
+    request=ReviewReportSerializer,
+    responses={
+        201: inline_serializer(
+            name="ReviewReportResponse",
+            fields={
+                "detail": serializers.CharField(),
+                "report_id": serializers.IntegerField(),
+            },
+        ),
+    },
+)
 @api_view(["POST"])
 def review_report(request, review_id):
     """Шикоят аз отзыви нашршуда."""
@@ -328,18 +389,9 @@ def moderation_queue(request):
     })
 
 
+
 @extend_schema(
-    request={
-        "type": "object",
-        "properties": {
-            "action": {
-                "type": "string",
-                "enum": ["approve", "reject"],
-            },
-            "reason": {"type": "string"},
-        },
-        "required": ["action"],
-    },
+    request=ModerateReviewSerializer,
     responses={200: dict, 400: dict, 404: dict},
 )
 @api_view(["POST"])
@@ -440,7 +492,44 @@ def moderate_review(request, review_id):
 
 
 
-
+@extend_schema(
+    tags=["Reviews"],
+    summary="Бор кардани акси отзыв",
+    request=inline_serializer(
+        name="ReviewPhotoUploadRequest",
+        fields={
+            "image": serializers.ImageField(),
+        },
+    ),
+    responses={
+        201: inline_serializer(
+            name="ReviewPhotoUploadResponse",
+            fields={
+                "id": serializers.IntegerField(),
+                "image": serializers.URLField(),
+                "created_at": serializers.DateTimeField(),
+            },
+        ),
+        400: inline_serializer(
+            name="ReviewPhotoUploadError",
+            fields={
+                "detail": serializers.CharField(),
+            },
+        ),
+        403: inline_serializer(
+            name="ReviewPhotoUploadForbidden",
+            fields={
+                "detail": serializers.CharField(),
+            },
+        ),
+        404: inline_serializer(
+            name="ReviewPhotoUploadNotFound",
+            fields={
+                "detail": serializers.CharField(),
+            },
+        ),
+    },
+)
 @api_view(["POST"])
 @permission_classes([IsAuthenticated])
 @parser_classes([MultiPartParser, FormParser])
@@ -520,7 +609,34 @@ def review_photo_upload(request, review_id):
 
 
 
-
+@extend_schema(
+    tags=["Reviews"],
+    summary="Рӯйхати шикоятҳо",
+    parameters=[
+        OpenApiParameter(
+            name="status",
+            type=str,
+            location=OpenApiParameter.QUERY,
+            enum=["pending", "resolved"],
+            required=False,
+        ),
+    ],
+    responses={
+        200: inline_serializer(
+            name="ModerationReportsResponse",
+            many=True,
+            fields={
+                "id": serializers.IntegerField(),
+                "review_id": serializers.IntegerField(),
+                "place_name": serializers.JSONField(),
+                "reporter_id": serializers.IntegerField(),
+                "reason": serializers.CharField(),
+                "status": serializers.CharField(),
+                "created_at": serializers.DateTimeField(),
+            },
+        ),
+    },
+)
 @api_view(["GET"])
 @permission_classes([IsModeratorOrAdmin])
 def moderation_reports(request):
@@ -551,6 +667,28 @@ def moderation_reports(request):
     return Response(results)
 
 
+
+@extend_schema(
+    tags=["Reviews"],
+    summary="Ҳал кардани шикоят",
+    request=None,
+    responses={
+        200: inline_serializer(
+            name="ResolveReportResponse",
+            fields={
+                "detail": serializers.CharField(),
+                "report_id": serializers.IntegerField(),
+                "status": serializers.CharField(),
+            },
+        ),
+        404: inline_serializer(
+            name="ResolveReportNotFound",
+            fields={
+                "detail": serializers.CharField(),
+            },
+        ),
+    },
+)
 @api_view(["POST"])
 @permission_classes([IsModeratorOrAdmin])
 def resolve_report(request, report_id):

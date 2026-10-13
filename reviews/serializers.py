@@ -2,6 +2,7 @@
 from rest_framework import serializers
 
 from .models import Review, ReviewLike, ReviewReport, ReviewPhoto
+from drf_spectacular.utils import extend_schema_field
 
 
 
@@ -41,10 +42,12 @@ class ReviewSerializer(serializers.ModelSerializer):
     ]
         read_only_fields = fields
 
-    def get_likes_count(self, obj):
+    @extend_schema_field(serializers.IntegerField())
+    def get_likes_count(self, obj) -> int:
         return obj.likes.count()
 
-    def get_is_liked(self, obj):
+    @extend_schema_field(serializers.BooleanField())
+    def get_is_liked(self, obj) -> bool:
         request = self.context.get("request")
 
         if not request or not request.user.is_authenticated:
@@ -121,3 +124,14 @@ class ReviewReportSerializer(serializers.ModelSerializer):
             )
 
         return value
+
+
+
+class ModerateReviewSerializer(serializers.Serializer):
+    action = serializers.ChoiceField(
+        choices=["approve", "reject"]
+    )
+    reason = serializers.CharField(
+        required=False,
+        allow_blank=True,
+    )

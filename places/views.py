@@ -737,7 +737,31 @@ def favorite_delete(request, place_id):
 
 
 
-
+@extend_schema(
+    operation_id="home",
+    summary="Маълумоти асосии саҳифаи хонагӣ",
+    parameters=[
+        OpenApiParameter(
+            name="lang",
+            type=str,
+            location=OpenApiParameter.QUERY,
+            enum=["tg", "ru", "en"],
+            description="Забони ҷавоб",
+        ),
+    ],
+    responses={
+        200: inline_serializer(
+            name="HomeResponse",
+            fields={
+                "popular_places": PlaceListSerializer(many=True),
+                "categories": CategorySerializer(many=True),
+                "recent_reviews": ReviewSerializer(many=True),
+                "places_count": serializers.IntegerField(),
+                "categories_count": serializers.IntegerField(),
+            },
+        ),
+    },
+)
 @extend_schema(
     operation_id="home",
     parameters=[
@@ -897,6 +921,22 @@ def search_suggest(request):
 
 
 
+@extend_schema(
+    summary="Рӯйхати ҷойҳои соҳиби аккаунт",
+    responses={
+        200: inline_serializer(
+            name="OwnerPlacesResponse",
+            fields={
+                "count": serializers.IntegerField(),
+                "results": PlaceDetailSerializer(many=True),
+            },
+        ),
+        403: inline_serializer(
+            name="OwnerPlacesForbiddenResponse",
+            fields={"detail": serializers.CharField()},
+        ),
+    },
+)
 @api_view(["GET"])
 @permission_classes([IsAuthenticated])
 def owner_places(request):
@@ -927,6 +967,24 @@ def owner_places(request):
     })
 
 
+
+@extend_schema(
+    summary="Таҳрири ҷойи худ",
+    request=OwnerPlaceUpdateSerializer,
+    responses={
+        200: inline_serializer(
+            name="OwnerPlaceUpdateResponse",
+            fields={
+                "detail": serializers.CharField(),
+                "place": PlaceDetailSerializer(),
+            },
+        ),
+        403: inline_serializer(
+            name="OwnerPlaceUpdateForbiddenResponse",
+            fields={"detail": serializers.CharField()},
+        ),
+    },
+)
 @api_view(["PATCH"])
 @permission_classes([IsAuthenticated])
 def owner_place_update(request, place_id):
@@ -962,6 +1020,34 @@ def owner_place_update(request, place_id):
 
 
 
+@extend_schema(
+    summary="Ҷавоб додан ба отзыв",
+    request=inline_serializer(
+        name="OwnerReviewReplyRequest",
+        fields={"reply": serializers.CharField()},
+    ),
+    responses={
+        200: inline_serializer(
+            name="OwnerReviewReplyResponse",
+            fields={
+                "detail": serializers.CharField(),
+                "review_id": serializers.IntegerField(),
+                "owner_reply": serializers.CharField(),
+                "owner_reply_at": serializers.DateTimeField(
+                    allow_null=True,
+                ),
+            },
+        ),
+        400: inline_serializer(
+            name="OwnerReviewReplyBadRequest",
+            fields={"detail": serializers.CharField()},
+        ),
+        403: inline_serializer(
+            name="OwnerReviewReplyForbidden",
+            fields={"detail": serializers.CharField()},
+        ),
+    },
+)
 @api_view(["POST"])
 @permission_classes([IsAuthenticated])
 def owner_review_reply(request, review_id):
@@ -1054,6 +1140,21 @@ def owner_review_reply(request, review_id):
 
 
 
+@extend_schema(
+    summary="Эҷоди дархости тасдиқи соҳиби ҷой",
+    request=ClaimCreateSerializer,
+    responses={
+        201: ClaimSerializer,
+        400: inline_serializer(
+            name="ClaimCreateBadRequest",
+            fields={"detail": serializers.CharField()},
+        ),
+        403: inline_serializer(
+            name="ClaimCreateForbidden",
+            fields={"detail": serializers.CharField()},
+        ),
+    },
+)
 @api_view(["POST"])
 @permission_classes([IsAuthenticated])
 def claim_create(request):
@@ -1086,6 +1187,22 @@ def claim_create(request):
     )
 
 
+
+@extend_schema(
+    summary="Рӯйхати дархостҳои тасдиқи соҳиби ҷой",
+    parameters=[
+        OpenApiParameter(
+            name="status",
+            type=str,
+            location=OpenApiParameter.QUERY,
+            enum=list(Claim.Status.values),
+            description="Филтр аз рӯйи ҳолати дархост",
+        ),
+    ],
+    responses={
+        200: ClaimSerializer(many=True),
+    },
+)
 @api_view(["GET"])
 @permission_classes([IsPlacewiseAdmin])
 def admin_claim_list(request):
@@ -1101,6 +1218,37 @@ def admin_claim_list(request):
     return Response(ClaimSerializer(claims, many=True).data)
 
 
+
+@extend_schema(
+    summary="Баррасии дархости соҳиби ҷой",
+    request=inline_serializer(
+        name="AdminClaimReviewRequest",
+        fields={
+            "action": serializers.ChoiceField(
+                choices=["approve", "reject"],
+            ),
+            "reason": serializers.CharField(
+                required=False,
+                allow_blank=True,
+            ),
+        },
+    ),
+    responses={
+        200: inline_serializer(
+            name="AdminClaimReviewResponse",
+            fields={
+                "detail": serializers.CharField(),
+                "claim_id": serializers.IntegerField(),
+                "status": serializers.CharField(),
+                "reason": serializers.CharField(),
+            },
+        ),
+        400: inline_serializer(
+            name="AdminClaimReviewBadRequest",
+            fields={"detail": serializers.CharField()},
+        ),
+    },
+)
 @api_view(["POST"])
 @permission_classes([IsPlacewiseAdmin])
 def admin_claim_review(request, claim_id):
@@ -1255,7 +1403,21 @@ def upload_image(request):
 
 
 
-
+@extend_schema(
+    summary="Нашр кардани ҷой",
+    request=None,
+    responses={
+        200: inline_serializer(
+            name="AdminPlacePublishResponse",
+            fields={
+                "detail": serializers.CharField(),
+                "id": serializers.IntegerField(required=False),
+                "name": serializers.CharField(required=False),
+                "status": serializers.CharField(required=False),
+            },
+        ),
+    },
+)
 @api_view(["POST"])
 @permission_classes([IsPlacewiseAdmin])
 def admin_place_publish(request, place_id):
@@ -1280,7 +1442,21 @@ def admin_place_publish(request, place_id):
 
 
 
-
+@extend_schema(
+    summary="Пинҳон кардани ҷой",
+    request=None,
+    responses={
+        200: inline_serializer(
+            name="AdminPlaceHideResponse",
+            fields={
+                "detail": serializers.CharField(),
+                "id": serializers.IntegerField(required=False),
+                "name": serializers.CharField(required=False),
+                "status": serializers.CharField(required=False),
+            },
+        ),
+    },
+)
 @api_view(["POST"])
 @permission_classes([IsPlacewiseAdmin])
 def admin_place_hide(request, place_id):
@@ -1381,7 +1557,21 @@ class AdminPlacePagination(PageNumberPagination):
 
 
 
-@extend_schema(request=AdminPlaceUpdateSerializer)
+@extend_schema(
+    summary="Таҳрири ҷой аз ҷониби администратор",
+    request=AdminPlaceUpdateSerializer,
+    responses={
+        200: inline_serializer(
+            name="AdminPlaceUpdateResponse",
+            fields={
+                "detail": serializers.CharField(),
+                "id": serializers.IntegerField(),
+                "name": serializers.CharField(),
+                "status": serializers.CharField(),
+            },
+        ),
+    },
+)
 @api_view(["PATCH"])
 @permission_classes([IsPlacewiseAdmin])
 def admin_place_update(request, place_id):

@@ -11,7 +11,8 @@ from .views import (
     search_suggest, owner_place_update, owner_places,
     owner_review_reply,
     claim_create, admin_claim_list, admin_claim_review,
-    upload_image,
+    upload_image, admin_place_publish, admin_place_hide,
+    admin_places_list,admin_place_update,
 )
 
 urlpatterns = [
@@ -55,4 +56,21 @@ urlpatterns = [
     admin_claim_review,
     name="admin-claim-review",),
     path("uploads/", upload_image, name="upload-image"),
+    path(
+    "admin/places/<int:place_id>/publish/",
+    admin_place_publish,
+    name="admin-place-publish"),
+    path(
+    "admin/places/<int:place_id>/hide/",
+    admin_place_hide,
+    name="admin-place-hide"),
+    path(
+    "admin/places/",
+    admin_places_list,
+    name="admin-places-list"),
+    path(
+    "admin/places/<int:place_id>/",
+    admin_place_update,
+    name="admin-place-update"),
+
 ]

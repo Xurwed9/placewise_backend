@@ -216,8 +216,6 @@ class PlacePaginationSerializer(serializers.Serializer):
 
 
 
-
-
 class OwnerPlaceUpdateSerializer(serializers.ModelSerializer):
     class Meta:
         model = Place
@@ -252,7 +250,6 @@ class OwnerPlaceUpdateSerializer(serializers.ModelSerializer):
             )
 
         return value
-
 
 
 
@@ -293,3 +290,22 @@ class ClaimSerializer(serializers.ModelSerializer):
         ]
         read_only_fields = fields
 
+
+
+class AdminPlaceUpdateSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Place
+        fields = [
+            "name",
+            "slug",
+            "category",
+            "brand",
+            "subcategory",
+            "address",
+            "district",
+            "about",
+            "phones",
+            "website",
+            "opening_hours",
+            "price_level",
+        ]

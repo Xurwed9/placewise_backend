@@ -24,3 +24,16 @@ class UserProfileUpdateSerializer(serializers.ModelSerializer):
     class Meta:
         model = User
         fields = ["name", "language", "avatar"]
+
+
+
+
+
+class ModerateReviewSerializer(serializers.Serializer):
+    action = serializers.ChoiceField(
+        choices=["approve", "reject"]
+    )
+    reason = serializers.CharField(
+        required=False,
+        allow_blank=True,
+    )

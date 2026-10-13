@@ -4,6 +4,8 @@ from rest_framework import status
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
+from drf_spectacular.utils import extend_schema, inline_serializer
+from rest_framework import serializers
 
 from .models import Notification
 from .serializers import NotificationSerializer
@@ -17,6 +19,19 @@ def active_user(request):
     )
 
 
+@extend_schema(
+    tags=["Notifications"],
+    summary="Рӯйхати огоҳиномаҳо",
+    responses={
+        200: inline_serializer(
+            name="NotificationListResponse",
+            fields={
+                "unread_count": serializers.IntegerField(),
+                "results": NotificationSerializer(many=True),
+            },
+        ),
+    },
+)
 @api_view(["GET"])
 @permission_classes([IsAuthenticated])
 def notification_list(request):
@@ -41,6 +56,25 @@ def notification_list(request):
     })
 
 
+@extend_schema(
+    tags=["Notifications"],
+    summary="Хондашуда кардани огоҳинома",
+    request=None,
+    responses={
+        200: inline_serializer(
+            name="MarkNotificationReadResponse",
+            fields={
+                "detail": serializers.CharField(),
+                "id": serializers.IntegerField(),
+                "is_read": serializers.BooleanField(),
+            },
+        ),
+        403: inline_serializer(
+            name="MarkNotificationReadForbidden",
+            fields={"detail": serializers.CharField()},
+        ),
+    },
+)
 @api_view(["POST"])
 @permission_classes([IsAuthenticated])
 def mark_notification_read(request, notification_id):
@@ -67,6 +101,24 @@ def mark_notification_read(request, notification_id):
     })
 
 
+@extend_schema(
+    tags=["Notifications"],
+    summary="Хондашуда кардани ҳамаи огоҳиномаҳо",
+    request=None,
+    responses={
+        200: inline_serializer(
+            name="MarkAllNotificationsReadResponse",
+            fields={
+                "detail": serializers.CharField(),
+                "updated_count": serializers.IntegerField(),
+            },
+        ),
+        403: inline_serializer(
+            name="MarkAllNotificationsReadForbidden",
+            fields={"detail": serializers.CharField()},
+        ),
+    },
+)
 @api_view(["POST"])
 @permission_classes([IsAuthenticated])
 def mark_all_notifications_read(request):
