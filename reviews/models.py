@@ -202,3 +202,7 @@ def review_saved(sender, instance, **kwargs):
 def review_deleted(sender, instance, **kwargs):
     update_place_rating(instance.place)
 
+
+
+REVIEW_STATUS_CHOICES = Review.Status.choices
+REVIEW_REPORT_STATUS_CHOICES = ReviewReport.Status.choices

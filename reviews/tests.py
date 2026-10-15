@@ -1,10 +1,15 @@
+from io import BytesIO
 
+from django.core.files.uploadedfile import SimpleUploadedFile
+from django.test import override_settings
+from PIL import Image
+
+from reviews.models import Review, ReviewPhoto
 from django.contrib.auth import get_user_model
 from django.test import TestCase
 from rest_framework.test import APIClient
 
 from places.models import Category, Place
-from reviews.models import Review
 from notifications.models import Notification
 
 User = get_user_model()
@@ -305,3 +310,145 @@ class ReviewNotificationIntegrationTests(TestCase):
         )
 
 
+
+class ReviewPhotoUploadTests(TestCase):
+    @classmethod
+    def setUpTestData(cls):
+        User = get_user_model()
+
+        cls.user = User.objects.create_user(
+            username="photo_test_user",
+            phone="+992900000021",
+            name="Photo Test User",
+        )
+
+        cls.other_user = User.objects.create_user(
+            username="other_photo_user",
+            phone="+992900000022",
+            name="Other Photo User",
+        )
+
+        cls.category = Category.objects.create(
+            name={"ru": "Кафе"},
+            slug="photo-test-category",
+        )
+
+        cls.place = Place.objects.create(
+            category=cls.category,
+            name={"ru": "Тестовое кафе"},
+            slug="photo-test-place",
+            address={"ru": "Душанбе"},
+            status=Place.Status.PUBLISHED,
+        )
+
+    def setUp(self):
+        self.client = APIClient()
+
+        self.review = Review.objects.create(
+            user=self.user,
+            place=self.place,
+            rating=5,
+            text=(
+                "Ин ҷой хеле хуб аст ва хизматрасонӣ "
+                "босифат мебошад."
+            ),
+            status=Review.Status.PENDING,
+        )
+
+        self.url = (
+            f"/api/v1/reviews/{self.review.id}/photos"
+        )
+
+    def make_image(self):
+        buffer = BytesIO()
+
+        image = Image.new("RGB", (100, 80), color="red")
+        image.save(buffer, format="JPEG")
+
+        return SimpleUploadedFile(
+            "test.jpg",
+            buffer.getvalue(),
+            content_type="image/jpeg",
+        )
+
+    def test_guest_cannot_upload_photo(self):
+        response = self.client.post(
+            self.url,
+            {"image": self.make_image()},
+            format="multipart",
+        )
+
+        self.assertEqual(response.status_code, 401)
+
+    def test_owner_can_upload_photo(self):
+        self.client.force_authenticate(user=self.user)
+
+        response = self.client.post(
+            self.url,
+            {"image": self.make_image()},
+            format="multipart",
+        )
+
+        self.assertEqual(response.status_code, 201)
+        self.assertIn("image", response.json())
+
+        photo = ReviewPhoto.objects.get(review=self.review)
+
+        with Image.open(photo.image) as saved_image:
+            self.assertEqual(saved_image.format, "WEBP")
+
+    def test_other_user_cannot_upload_photo(self):
+        self.client.force_authenticate(user=self.other_user)
+
+        response = self.client.post(
+            self.url,
+            {"image": self.make_image()},
+            format="multipart",
+        )
+
+        self.assertEqual(response.status_code, 404)
+        self.assertEqual(ReviewPhoto.objects.count(), 0)
+
+    def test_invalid_file_is_rejected(self):
+        self.client.force_authenticate(user=self.user)
+
+        invalid_file = SimpleUploadedFile(
+            "bad.jpg",
+            b"this is not a real image",
+            content_type="image/jpeg",
+        )
+
+        response = self.client.post(
+            self.url,
+            {"image": invalid_file},
+            format="multipart",
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(ReviewPhoto.objects.count(), 0)
+
+    def test_sixth_photo_is_rejected(self):
+    # Барои отзыв аллакай 5 акс месозем.
+        for _ in range(5):
+            ReviewPhoto.objects.create(
+                review=self.review,
+                image=SimpleUploadedFile(
+                    f"photo_{_}.jpg",
+                    b"test-image",
+                    content_type="image/jpeg",
+                ),
+            )
+
+        self.client.force_authenticate(user=self.user)
+
+        response = self.client.post(
+            self.url,
+            {"image": self.make_image()},
+            format="multipart",
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(
+            ReviewPhoto.objects.filter(review=self.review).count(),
+            5,
+        )

@@ -6,3 +6,6 @@ __pycache__/
 db.sqlite3
 media/
 avatars/
+
+# Generated static files
+staticfiles/

@@ -1,6 +1,3 @@
-from uuid import uuid4
-
-from PIL import Image, UnidentifiedImageError
 from django.core.files.storage import default_storage
 from rest_framework.decorators import parser_classes
 from rest_framework.parsers import MultiPartParser, FormParser
@@ -43,6 +40,7 @@ from .serializers import (
 from reviews.models import Review
 from reviews.serializers import ReviewSerializer
 from notifications.models import Notification
+from core.image_processing import process_uploaded_image
 
 
 class PlacePagination(PageNumberPagination):
@@ -1320,22 +1318,21 @@ def admin_claim_review(request, claim_id):
     ),
     
     responses={
-        201: inline_serializer(
-            name="UploadImageResponse",
-            fields={
-                "url": serializers.URLField(),
-                "filename": serializers.CharField(),
-                "size": serializers.IntegerField(),
-                "format": serializers.CharField(),
-            },
-        ),
-        400: inline_serializer(
-            name="UploadImageError",
-            fields={
-                "detail": serializers.CharField(),
-            },
-        ),
-    },
+    201: inline_serializer(
+        name="UploadImageResponse",
+        fields={
+            "url": serializers.URLField(),
+            "filename": serializers.CharField(),
+            "format": serializers.CharField(),
+        },
+    ),
+    400: inline_serializer(
+        name="UploadImageError",
+        fields={
+            "detail": serializers.CharField(),
+        },
+    ),
+},
 )
 @api_view(["POST"])
 @permission_classes([IsAuthenticated])
@@ -1355,38 +1352,17 @@ def upload_image(request):
             status=status.HTTP_400_BAD_REQUEST,
         )
 
-    if uploaded_file.size > 10 * 1024 * 1024:
-        return Response(
-            {"detail": "Акс набояд аз 10 MB зиёд бошад."},
-            status=status.HTTP_400_BAD_REQUEST,
-        )
-
     try:
-        image = Image.open(uploaded_file)
-        image_format = image.format
-        image.verify()
-    except (UnidentifiedImageError, OSError, ValueError):
+        processed_image = process_uploaded_image(uploaded_file)
+    except ValueError as exc:
         return Response(
-            {"detail": "Файли фиристодашуда акси дуруст нест."},
+            {"detail": str(exc)},
             status=status.HTTP_400_BAD_REQUEST,
         )
 
-    extensions = {
-        "JPEG": "jpg",
-        "PNG": "png",
-        "WEBP": "webp",
-    }
-
-    if image_format not in extensions:
-        return Response(
-            {"detail": "Танҳо JPG, PNG ва WebP иҷозатанд."},
-            status=status.HTTP_400_BAD_REQUEST,
-        )
-
-    extension = extensions[image_format]
     path = default_storage.save(
-        f"uploads/{uuid4().hex}.{extension}",
-        uploaded_file,
+        f"uploads/{processed_image.name}",
+        processed_image,
     )
 
     return Response(
@@ -1395,11 +1371,11 @@ def upload_image(request):
                 default_storage.url(path)
             ),
             "filename": path.rsplit("/", 1)[-1],
-            "size": uploaded_file.size,
-            "format": image_format.lower(),
+            "format": "webp",
         },
         status=status.HTTP_201_CREATED,
     )
+
 
 
 

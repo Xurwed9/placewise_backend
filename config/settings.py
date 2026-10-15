@@ -13,6 +13,7 @@ https://docs.djangoproject.com/en/6.1/ref/settings/
 from pathlib import Path
 from dotenv import load_dotenv
 import os
+import dj_database_url
 
 load_dotenv()
 
@@ -27,10 +28,51 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 SECRET_KEY = os.environ["SECRET_KEY"]
 
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = True
+DEBUG = os.getenv("DJANGO_DEBUG", "False").strip().lower() in {
+    "true",
+    "1",
+    "yes",
+    "on",
+}
 
-ALLOWED_HOSTS = []
+SMS_ENABLED = os.getenv("SMS_ENABLED", "False").strip().lower() in {
+    "true",
+    "1",
+    "yes",
+    "on",
+}
 
+SMS_API_URL = os.getenv("SMS_API_URL", "")
+SMS_API_KEY = os.getenv("SMS_API_KEY", "")
+SMS_SENDER = os.getenv("SMS_SENDER", "")
+
+ALLOWED_HOSTS = [
+    host.strip()
+    for host in os.getenv(
+        "DJANGO_ALLOWED_HOSTS",
+        "localhost,127.0.0.1",
+    ).split(",")
+    if host.strip()
+]
+
+CSRF_TRUSTED_ORIGINS = [
+    origin.strip()
+    for origin in os.getenv(
+        "DJANGO_CSRF_TRUSTED_ORIGINS",
+        "",
+    ).split(",")
+    if origin.strip()
+]
+
+
+CORS_ALLOWED_ORIGINS = [
+    origin.strip()
+    for origin in os.getenv(
+        "DJANGO_CORS_ALLOWED_ORIGINS",
+        "http://localhost:3000",
+    ).split(",")
+    if origin.strip()
+]
 
 # Application definition
 
@@ -41,6 +83,7 @@ INSTALLED_APPS = [
     "django.contrib.sessions",
     "django.contrib.messages",
     "django.contrib.staticfiles",
+    "corsheaders",
 
     "rest_framework",
     "django.contrib.gis",
@@ -48,6 +91,7 @@ INSTALLED_APPS = [
     "rest_framework_gis",
     "drf_spectacular",
     "rest_framework_simplejwt",
+    "whitenoise.runserver_nostatic",
 
     "places",
     "users",
@@ -57,14 +101,49 @@ INSTALLED_APPS = [
 ]
 
 MIDDLEWARE = [
-    'django.middleware.security.SecurityMiddleware',
-    'django.contrib.sessions.middleware.SessionMiddleware',
-    'django.middleware.common.CommonMiddleware',
-    'django.middleware.csrf.CsrfViewMiddleware',
-    'django.contrib.auth.middleware.AuthenticationMiddleware',
-    'django.contrib.messages.middleware.MessageMiddleware',
-    'django.middleware.clickjacking.XFrameOptionsMiddleware',
+    "django.middleware.security.SecurityMiddleware",
+    "whitenoise.middleware.WhiteNoiseMiddleware",
+    "corsheaders.middleware.CorsMiddleware",
+    "django.contrib.sessions.middleware.SessionMiddleware",
+    "django.middleware.common.CommonMiddleware",
+    "django.middleware.csrf.CsrfViewMiddleware",
+    "django.contrib.auth.middleware.AuthenticationMiddleware",
+    "django.contrib.messages.middleware.MessageMiddleware",
+    "django.middleware.clickjacking.XFrameOptionsMiddleware",
 ]
+
+SECURE_SSL_REDIRECT = (
+    os.getenv("DJANGO_SECURE_SSL_REDIRECT", "False").lower()
+    in {"true", "1", "yes", "on"}
+)
+
+SESSION_COOKIE_SECURE = (
+    os.getenv("DJANGO_SESSION_COOKIE_SECURE", "False").lower()
+    in {"true", "1", "yes", "on"}
+)
+
+CSRF_COOKIE_SECURE = (
+    os.getenv("DJANGO_CSRF_COOKIE_SECURE", "False").lower()
+    in {"true", "1", "yes", "on"}
+)
+
+SECURE_HSTS_SECONDS = int(
+    os.getenv("DJANGO_SECURE_HSTS_SECONDS", "0")
+)
+
+SECURE_HSTS_INCLUDE_SUBDOMAINS = (
+    os.getenv("DJANGO_HSTS_INCLUDE_SUBDOMAINS", "False").lower()
+    in {"true", "1", "yes", "on"}
+)
+
+SECURE_HSTS_PRELOAD = (
+    os.getenv("DJANGO_HSTS_PRELOAD", "False").lower()
+    in {"true", "1", "yes", "on"}
+)
+
+SECURE_CONTENT_TYPE_NOSNIFF = True
+X_FRAME_OPTIONS = "DENY"
+
 
 ROOT_URLCONF = 'config.urls'
 
@@ -90,16 +169,40 @@ WSGI_APPLICATION = 'config.wsgi.application'
 # https://docs.djangoproject.com/en/6.1/ref/settings/#databases
 
 
-DATABASES = {
-    "default": {
-        "ENGINE": "django.contrib.gis.db.backends.postgis",
-        "NAME": os.getenv("DB_NAME", "placewise_db"),
-        "USER": os.getenv("DB_USER", "postgres"),
-        "PASSWORD": os.getenv("DB_PASSWORD", ""),
-        "HOST": os.getenv("DB_HOST", "127.0.0.1"),
-        "PORT": os.getenv("DB_PORT", "5432"),
+
+DATABASE_URL = os.getenv("DATABASE_URL", "").strip()
+
+if DATABASE_URL:
+    DATABASES = {
+        "default": dj_database_url.parse(
+            DATABASE_URL,
+            conn_max_age=600,
+        )
     }
-}
+    DATABASES["default"]["ENGINE"] = (
+        "django.contrib.gis.db.backends.postgis"
+    )
+else:
+    DATABASES = {
+        "default": {
+            "ENGINE": "django.contrib.gis.db.backends.postgis",
+            "NAME": os.getenv("DB_NAME", "placewise_db"),
+            "USER": os.getenv("DB_USER", "postgres"),
+            "PASSWORD": os.getenv("DB_PASSWORD", ""),
+            "HOST": os.getenv("DB_HOST", "127.0.0.1"),
+            "PORT": os.getenv("DB_PORT", "5432"),
+        }
+    }
+# DATABASES = {
+#     "default": {
+#         "ENGINE": "django.contrib.gis.db.backends.postgis",
+#         "NAME": os.getenv("DB_NAME", "placewise_db"),
+#         "USER": os.getenv("DB_USER", "postgres"),
+#         "PASSWORD": os.getenv("DB_PASSWORD", ""),
+#         "HOST": os.getenv("DB_HOST", "127.0.0.1"),
+#         "PORT": os.getenv("DB_PORT", "5432"),
+#     }
+# }
 
 
 
@@ -138,27 +241,56 @@ USE_TZ = True
 # https://docs.djangoproject.com/en/6.1/howto/static-files/
 
 STATIC_URL = 'static/'
+STATIC_ROOT = BASE_DIR / "staticfiles"
 
 
 # Email
 # https://docs.djangoproject.com/en/6.1/topics/email/#topic-email-configuration
 
-MAILERS = {
-    'default': {
-        'BACKEND': 'django.core.mail.backends.console.EmailBackend',
-    },
-}
+EMAIL_BACKEND = os.getenv(
+    "DJANGO_EMAIL_BACKEND",
+    (
+        "django.core.mail.backends.console.EmailBackend"
+        if DEBUG
+        else "django.core.mail.backends.smtp.EmailBackend"
+    ),
+)
+
+EMAIL_HOST = os.getenv("EMAIL_HOST", "")
+EMAIL_PORT = int(os.getenv("EMAIL_PORT", "587"))
+EMAIL_HOST_USER = os.getenv("EMAIL_HOST_USER", "")
+EMAIL_HOST_PASSWORD = os.getenv("EMAIL_HOST_PASSWORD", "")
+EMAIL_USE_TLS = (
+    os.getenv("EMAIL_USE_TLS", "True").lower()
+    in {"true", "1", "yes", "on"}
+)
+EMAIL_USE_SSL = (
+    os.getenv("EMAIL_USE_SSL", "False").lower()
+    in {"true", "1", "yes", "on"}
+)
+DEFAULT_FROM_EMAIL = os.getenv(
+    "DEFAULT_FROM_EMAIL",
+    "noreply@localhost",
+)
 
 
-# GeoDjango libraries — Fedora
-GDAL_LIBRARY_PATH = "/usr/lib64/libgdal.so.38"
-GEOS_LIBRARY_PATH = "/usr/lib64/libgeos_c.so.1"
+
+# GeoDjango libraries
+# Агар роҳҳо дар environment дода шуда бошанд, истифода мешаванд.
+# Дар акси ҳол Django кӯшиш мекунад китобхонаҳоро худаш пайдо кунад.
+if os.getenv("GDAL_LIBRARY_PATH"):
+    GDAL_LIBRARY_PATH = os.environ["GDAL_LIBRARY_PATH"]
+
+if os.getenv("GEOS_LIBRARY_PATH"):
+    GEOS_LIBRARY_PATH = os.environ["GEOS_LIBRARY_PATH"]
+
 
 AUTH_USER_MODEL = "users.User"
 
 
 
 from datetime import timedelta
+
 
 REST_FRAMEWORK = {
     "DEFAULT_AUTHENTICATION_CLASSES": [
@@ -168,6 +300,16 @@ REST_FRAMEWORK = {
         "rest_framework.permissions.AllowAny",
     ],
     "DEFAULT_SCHEMA_CLASS": "drf_spectacular.openapi.AutoSchema",
+
+    # Маҳдудияти шумораи дархостҳои API
+    "DEFAULT_THROTTLE_CLASSES": [
+        "rest_framework.throttling.AnonRateThrottle",
+        "rest_framework.throttling.UserRateThrottle",
+    ],
+    "DEFAULT_THROTTLE_RATES": {
+        "anon": "100/hour",
+        "user": "1000/hour",
+    },
 }
 
 SIMPLE_JWT = {
@@ -238,6 +380,14 @@ Placewise — API-и феҳристи ҷойҳои Душанбе.
             "description": "Амалиётҳои маъмурӣ.",
         },
     ],
+
+    "ENUM_NAME_OVERRIDES": {
+        "PlaceStatus": "places.models.PLACE_STATUS_CHOICES",
+        "ClaimStatus": "places.models.CLAIM_STATUS_CHOICES",
+        "ReviewStatus": "reviews.models.REVIEW_STATUS_CHOICES",
+        "ReviewReportStatus": "reviews.models.REVIEW_REPORT_STATUS_CHOICES",
+    },
+
 }
 
 

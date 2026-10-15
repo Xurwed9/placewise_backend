@@ -35,6 +35,8 @@ from .serializers import (
     ModerateReviewSerializer,
 )
 from notifications.models import Notification
+from core.image_processing import process_uploaded_image
+from django.db import transaction
 
 
 def user_can_act(user):
@@ -118,7 +120,7 @@ def place_reviews(request, slug):
         microsecond=0,
     )
     tomorrow_start = today_start + timedelta(days=1)
-    
+
     daily_count = Review.objects.filter(
         user=request.user,
         created_at__gte=today_start,
@@ -553,37 +555,12 @@ def review_photo_upload(request, review_id):
             status=status.HTTP_404_NOT_FOUND,
         )
 
+
     uploaded_file = request.FILES.get("image")
 
     if not uploaded_file:
         return Response(
             {"detail": "Файли image ҳатмист."},
-            status=status.HTTP_400_BAD_REQUEST,
-        )
-
-    if uploaded_file.size > 10 * 1024 * 1024:
-        return Response(
-            {"detail": "Андозаи сурат набояд аз 10 MB зиёд бошад."},
-            status=status.HTTP_400_BAD_REQUEST,
-        )
-
-    try:
-        uploaded_file.seek(0)
-        image = Image.open(uploaded_file)
-        image_format = image.format
-
-        if image_format not in {"JPEG", "PNG", "WEBP"}:
-            return Response(
-                {"detail": "Танҳо JPEG, PNG ё WEBP иҷозат аст."},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
-        image.verify()
-        uploaded_file.seek(0)
-
-    except Exception:
-        return Response(
-            {"detail": "Файли сурат нодуруст аст."},
             status=status.HTTP_400_BAD_REQUEST,
         )
 
@@ -593,10 +570,37 @@ def review_photo_upload(request, review_id):
             status=status.HTTP_400_BAD_REQUEST,
         )
 
-    photo = ReviewPhoto.objects.create(
-        review=review,
-        image=uploaded_file,
-    )
+    try:
+        processed_image = process_uploaded_image(uploaded_file)
+    except ValueError as exc:
+        return Response(
+            {"detail": str(exc)},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    with transaction.atomic():
+        # Сабти отзывро муваққатан қулф мекунем.
+        review = Review.objects.select_for_update().get(
+            id=review_id,
+            user=user,
+        )
+
+        # Бори дигар шумораи аксҳоро месанҷем.
+        photo_count = ReviewPhoto.objects.filter(
+            review=review
+        ).count()
+
+        if photo_count >= 5:
+            return Response(
+                {"detail": "Ба як отзыв максимум 5 сурат иҷозат аст."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # Агар лимит пур нашуда бошад, аксро захира мекунем.
+        photo = ReviewPhoto.objects.create(
+            review=review,
+            image=processed_image,
+        )
 
     return Response(
         {
@@ -710,5 +714,3 @@ def resolve_report(request, report_id):
         "report_id": report.id,
         "status": report.status,
     })
-
-

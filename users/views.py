@@ -1,4 +1,4 @@
-
+from django.conf import settings
 import logging
 import re
 import secrets
@@ -95,7 +95,9 @@ def request_code(request):
         )
 
     # Resend is allowed only once per minute.
-    latest = PhoneOTP.objects.filter(phone=phone).first()
+    latest = PhoneOTP.objects.filter(
+    phone=phone
+        ).order_by("-created_at").first()
 
     if latest and latest.created_at > now - timedelta(minutes=1):
         return Response(
@@ -112,11 +114,10 @@ def request_code(request):
     )
 
     # Development only: print the code to the server terminal.
-    if not logging.getLogger().handlers:
-        logger.warning("Development OTP for %s: %s", phone, code)
-    else:
-        logger.warning("Development OTP created for %s", phone)
-        print(f"DEVELOPMENT OTP for {phone}: {code}")
+    # OTP танҳо дар development нишон дода мешавад.
+    # Танҳо барои development; дар production OTP нишон дода намешавад.
+    if settings.DEBUG:
+        print(f"Development OTP: {code}")
 
     return Response(
         {
@@ -235,8 +236,6 @@ def verify_code(request):
         },
         status=status.HTTP_200_OK,
     )
-
-
 
 
 

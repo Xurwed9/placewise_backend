@@ -257,3 +257,53 @@ class Claim(models.Model):
     def __str__(self):
         return f"{self.user} - {self.place} ({self.status})"
 
+
+class AnalyticsEvent(models.Model):
+    class EventType(models.TextChoices):
+        PLACE_VIEW = "place_view", "Тамошои ҷой"
+        PHONE_CLICK = "phone_click", "Клик ба телефон"
+        WHATSAPP_CLICK = "whatsapp_click", "Клик ба WhatsApp"
+        TELEGRAM_CLICK = "telegram_click", "Клик ба Telegram"
+        WEBSITE_CLICK = "website_click", "Клик ба вебсайт"
+
+    event_type = models.CharField(
+        max_length=30,
+        choices=EventType.choices,
+        db_index=True,
+    )
+
+    place = models.ForeignKey(
+        Place,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="analytics_events",
+    )
+
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="placewise_analytics_events",
+    )
+
+    created_at = models.DateTimeField(
+        auto_now_add=True,
+        db_index=True,
+    )
+
+    class Meta:
+        ordering = ["-created_at"]
+        indexes = [
+            models.Index(
+                fields=["event_type", "created_at"],
+                name="analytics_type_date_idx",
+            ),
+        ]
+
+    def __str__(self):
+        return f"{self.event_type} — {self.created_at}"
+
+PLACE_STATUS_CHOICES = Place.Status.choices
+CLAIM_STATUS_CHOICES = Claim.Status.choices
