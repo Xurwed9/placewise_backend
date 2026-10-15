@@ -4,7 +4,7 @@ from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import override_settings
 from PIL import Image
 
-from reviews.models import Review, ReviewPhoto
+from reviews.models import Review, ReviewPhoto, ReviewReport
 from django.contrib.auth import get_user_model
 from django.test import TestCase
 from rest_framework.test import APIClient
@@ -452,3 +452,232 @@ class ReviewPhotoUploadTests(TestCase):
             ReviewPhoto.objects.filter(review=self.review).count(),
             5,
         )
+
+
+
+class ReviewModerationAndReportAPITests(TestCase):
+    @classmethod
+    def setUpTestData(cls):
+        cls.reviewer = User.objects.create_user(
+            username="moderation_reviewer",
+            phone="+992900000071",
+            name="Review Author",
+            language="tg",
+        )
+
+        cls.moderator = User.objects.create_user(
+            username="moderation_moderator",
+            phone="+992900000072",
+            name="Moderator",
+            role="moderator",
+            is_staff=True,
+        )
+
+        cls.regular_user = User.objects.create_user(
+            username="moderation_regular",
+            phone="+992900000073",
+            name="Regular User",
+        )
+
+        cls.category = Category.objects.create(
+            name={"ru": "Кафе", "tg": "Қаҳвахона", "en": "Cafe"},
+            slug="moderation-test-category",
+        )
+
+        cls.place = Place.objects.create(
+            category=cls.category,
+            name={"ru": "Тестовое кафе"},
+            slug="moderation-test-place",
+            address={"ru": "Душанбе"},
+            status=Place.Status.PUBLISHED,
+        )
+
+    def setUp(self):
+        self.client = APIClient()
+
+    def create_review(self, status_value=Review.Status.PENDING):
+        return Review.objects.create(
+            user=self.reviewer,
+            place=self.place,
+            rating=5,
+            text=(
+                "Ин ҷой хеле хуб аст ва хизматрасонӣ босифат мебошад. "
+                "Кормандон бо мизоҷон муносибати хуб доранд."
+            ),
+            status=status_value,
+        )
+
+    def test_guest_cannot_access_moderation_queue(self):
+        response = self.client.get("/api/v1/moderation/reviews/")
+        self.assertEqual(response.status_code, 401)
+
+    def test_regular_user_cannot_access_moderation_queue(self):
+        self.client.force_authenticate(user=self.regular_user)
+
+        response = self.client.get("/api/v1/moderation/reviews/")
+
+        self.assertEqual(response.status_code, 403)
+
+    def test_moderator_queue_contains_only_pending_reviews(self):
+        pending_review = self.create_review()
+        self.create_review(Review.Status.APPROVED)
+
+        self.client.force_authenticate(user=self.moderator)
+
+        response = self.client.get("/api/v1/moderation/reviews/")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data["count"], 1)
+        self.assertEqual(
+            response.data["results"][0]["id"],
+            pending_review.id,
+        )
+
+    def test_regular_user_cannot_moderate_review(self):
+        review = self.create_review()
+        self.client.force_authenticate(user=self.regular_user)
+
+        response = self.client.post(
+            f"/api/v1/moderation/reviews/{review.id}/",
+            {"action": "approve"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 403)
+
+        review.refresh_from_db()
+        self.assertEqual(review.status, Review.Status.PENDING)
+
+    def test_reject_requires_reason(self):
+        review = self.create_review()
+        self.client.force_authenticate(user=self.moderator)
+
+        response = self.client.post(
+            f"/api/v1/moderation/reviews/{review.id}/",
+            {"action": "reject"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 400)
+
+        review.refresh_from_db()
+        self.assertEqual(review.status, Review.Status.PENDING)
+
+    def test_moderator_cannot_moderate_same_review_twice(self):
+        review = self.create_review()
+        self.client.force_authenticate(user=self.moderator)
+
+        first_response = self.client.post(
+            f"/api/v1/moderation/reviews/{review.id}/",
+            {"action": "approve"},
+            format="json",
+        )
+        second_response = self.client.post(
+            f"/api/v1/moderation/reviews/{review.id}/",
+            {"action": "reject", "reason": "Сабаб"},
+            format="json",
+        )
+
+        self.assertEqual(first_response.status_code, 200)
+        self.assertEqual(second_response.status_code, 404)
+
+        review.refresh_from_db()
+        self.assertEqual(review.status, Review.Status.APPROVED)
+
+    def test_regular_user_cannot_list_reports(self):
+        self.client.force_authenticate(user=self.regular_user)
+
+        response = self.client.get("/api/v1/admin/reports")
+
+        self.assertEqual(response.status_code, 403)
+
+    def test_moderator_can_list_reports(self):
+        review = self.create_review(Review.Status.APPROVED)
+        ReviewReport.objects.create(
+            user=self.regular_user,
+            review=review,
+            reason="Маълумоти нодуруст",
+        )
+
+        self.client.force_authenticate(user=self.moderator)
+
+        response = self.client.get("/api/v1/admin/reports")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(len(response.data), 1)
+        self.assertEqual(response.data[0]["reason"], "Маълумоти нодуруст")
+
+    def test_moderator_can_filter_pending_reports(self):
+        review = self.create_review(Review.Status.APPROVED)
+
+        ReviewReport.objects.create(
+            user=self.regular_user,
+            review=review,
+            reason="Шикояти нав",
+        )
+
+        resolved_report = ReviewReport.objects.create(
+            user=self.reviewer,
+            review=review,
+            reason="Шикояти ҳалшуда",
+            status=ReviewReport.Status.RESOLVED,
+        )
+
+        self.client.force_authenticate(user=self.moderator)
+
+        response = self.client.get(
+            "/api/v1/admin/reports?status=pending"
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(len(response.data), 1)
+        self.assertEqual(response.data[0]["status"], "pending")
+        self.assertNotEqual(response.data[0]["id"], resolved_report.id)
+
+    def test_regular_user_cannot_resolve_report(self):
+        review = self.create_review(Review.Status.APPROVED)
+        report = ReviewReport.objects.create(
+            user=self.reviewer,
+            review=review,
+            reason="Санҷиш",
+        )
+
+        self.client.force_authenticate(user=self.regular_user)
+
+        response = self.client.post(
+            f"/api/v1/admin/reports/{report.id}/resolve"
+        )
+
+        self.assertEqual(response.status_code, 403)
+
+        report.refresh_from_db()
+        self.assertEqual(report.status, ReviewReport.Status.PENDING)
+
+    def test_moderator_can_resolve_report(self):
+        review = self.create_review(Review.Status.APPROVED)
+        report = ReviewReport.objects.create(
+            user=self.reviewer,
+            review=review,
+            reason="Санҷиш",
+        )
+
+        self.client.force_authenticate(user=self.moderator)
+
+        response = self.client.post(
+            f"/api/v1/admin/reports/{report.id}/resolve"
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data["status"], "resolved")
+
+        report.refresh_from_db()
+        self.assertEqual(report.status, ReviewReport.Status.RESOLVED)
+
+    def test_resolving_unknown_report_returns_404(self):
+        self.client.force_authenticate(user=self.moderator)
+
+        response = self.client.post(
+            "/api/v1/admin/reports/999999/resolve"
+        )
+
+        self.assertEqual(response.status_code, 404)

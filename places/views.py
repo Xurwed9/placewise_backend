@@ -10,7 +10,7 @@ from rest_framework.decorators import api_view, permission_classes
 from rest_framework.pagination import PageNumberPagination
 from rest_framework.response import Response
 from django.contrib.gis.geos import Polygon
-from drf_spectacular.utils import extend_schema, OpenApiParameter, OpenApiTypes
+from drf_spectacular.utils import extend_schema, OpenApiParameter, OpenApiTypes,extend_schema_view, OpenApiResponse
 from rest_framework.permissions import IsAuthenticated
 from users.permissions import IsPlacewiseAdmin
 from drf_spectacular.utils import extend_schema, OpenApiParameter
@@ -27,7 +27,7 @@ from django.db.models import ExpressionWrapper, FloatField
 from datetime import datetime, time
 from zoneinfo import ZoneInfo
 
-from .models import Category, Place,Favorite,Claim
+from .models import Category, Place,Favorite,Claim, PlacePhoto
 from .serializers import (
     CategorySerializer,
     PlaceListSerializer,
@@ -35,7 +35,8 @@ from .serializers import (
     FavoriteSerializer,
     PlacePaginationSerializer,
     OwnerPlaceUpdateSerializer, ClaimCreateSerializer,
-    ClaimSerializer, AdminPlaceUpdateSerializer,
+    ClaimSerializer, AdminPlaceUpdateSerializer, AdminCategorySerializer,
+    AdminPlaceSerializer, PlacePhotoSerializer,
 )
 from reviews.models import Review
 from reviews.serializers import ReviewSerializer
@@ -1453,52 +1454,30 @@ def admin_place_hide(request, place_id):
 
 
 
+
 @extend_schema(
-    parameters=[
-        OpenApiParameter(
-            name="status",
-            type=OpenApiTypes.STR,
-            location=OpenApiParameter.QUERY,
-            required=False,
-            enum=["draft", "published", "hidden"],
-        ),
-        OpenApiParameter(
-            name="search",
-            type=OpenApiTypes.STR,
-            location=OpenApiParameter.QUERY,
-            required=False,
-            description="Ҷустуҷӯ аз рӯйи номи ҷой",
-        ),
-        OpenApiParameter(
-            name="page",
-            type=OpenApiTypes.INT,
-            location=OpenApiParameter.QUERY,
-            required=False,
-        ),
-        OpenApiParameter(
-            name="page_size",
-            type=OpenApiTypes.INT,
-            location=OpenApiParameter.QUERY,
-            required=False,
-        ),
-    ],
-    responses=inline_serializer(
-        name="AdminPlacesPaginatedResponse",
-        fields={
-            "count": serializers.IntegerField(),
-            "next": serializers.URLField(
-                allow_null=True,
-            ),
-            "previous": serializers.URLField(
-                allow_null=True,
-            ),
-            "results": PlaceListSerializer(many=True),
-        },
-    ),
+    request=AdminPlaceSerializer,
+    responses={201: AdminPlaceSerializer},
 )
-@api_view(["GET"])
+@api_view(["GET", "POST"])
 @permission_classes([IsPlacewiseAdmin])
 def admin_places_list(request):
+    if request.method == "POST":
+        serializer = AdminPlaceSerializer(
+            data=request.data,
+            context={"request": request},
+        )
+        serializer.is_valid(raise_exception=True)
+        place = serializer.save(status="draft")
+
+        return Response(
+            AdminPlaceSerializer(
+                place,
+                context={"request": request},
+            ).data,
+            status=status.HTTP_201_CREATED,
+        )
+
     places = Place.objects.all()
 
     status_filter = request.query_params.get("status")
@@ -1508,9 +1487,7 @@ def admin_places_list(request):
         places = places.filter(status=status_filter)
 
     if search:
-        places = places.filter(
-            Q(name__icontains=search)
-        )
+        places = places.filter(Q(name__icontains=search))
 
     paginator = AdminPlacePagination()
     page = paginator.paginate_queryset(places, request)
@@ -1526,6 +1503,77 @@ def admin_places_list(request):
 
 
 
+
+@extend_schema_view(
+    get=extend_schema(
+        operation_id="admin_place_detail",
+        responses=AdminPlaceSerializer,
+    ),
+    patch=extend_schema(
+        operation_id="admin_place_update",
+        request=AdminPlaceSerializer,
+        responses=AdminPlaceSerializer,
+    ),
+    delete=extend_schema(
+        operation_id="admin_place_delete",
+        responses={204: None, 409: OpenApiResponse(description="Place has reviews")},
+    ),
+)
+@api_view(["GET", "PATCH", "DELETE"])
+@permission_classes([IsPlacewiseAdmin])
+def admin_place_update(request, place_id):
+    place = get_object_or_404(Place, id=place_id)
+
+    if request.method == "GET":
+        serializer = AdminPlaceSerializer(
+            place,
+            context={"request": request},
+        )
+        return Response(serializer.data)
+
+    if request.method == "PATCH":
+        serializer = AdminPlaceSerializer(
+            place,
+            data=request.data,
+            partial=True,
+            context={"request": request},
+        )
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+
+        return Response(serializer.data)
+
+    if Review.objects.filter(place=place).exists():
+        return Response(
+            {
+                "detail": (
+                    "Ин ҷой review дорад. "
+                    "Барои нигоҳ доштани таърихи review "
+                    "онро нест кардан мумкин нест."
+                )
+            },
+            status=status.HTTP_409_CONFLICT,
+        )
+
+    
+    photo_files = [
+        photo.image
+        for photo in place.photos.all()
+        if photo.image
+    ]
+
+    place.delete()
+
+    for image_file in photo_files:
+        image_file.delete(save=False)
+
+    return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+
+
+
+
 class AdminPlacePagination(PageNumberPagination):
     page_size = 20
     page_size_query_param = "page_size"
@@ -1533,39 +1581,178 @@ class AdminPlacePagination(PageNumberPagination):
 
 
 
-@extend_schema(
-    summary="Таҳрири ҷой аз ҷониби администратор",
-    request=AdminPlaceUpdateSerializer,
-    responses={
-        200: inline_serializer(
-            name="AdminPlaceUpdateResponse",
-            fields={
-                "detail": serializers.CharField(),
-                "id": serializers.IntegerField(),
-                "name": serializers.CharField(),
-                "status": serializers.CharField(),
-            },
-        ),
-    },
-)
-@api_view(["PATCH"])
-@permission_classes([IsPlacewiseAdmin])
-def admin_place_update(request, place_id):
-    place = get_object_or_404(Place, id=place_id)
 
-    serializer = AdminPlaceUpdateSerializer(
-        place,
+@extend_schema(
+    methods=["GET"],
+    operation_id="admin_category_list",
+    responses={200: AdminCategorySerializer(many=True)},
+)
+@extend_schema(
+    methods=["POST"],
+    operation_id="admin_category_create",
+    request=AdminCategorySerializer,
+    responses={201: AdminCategorySerializer},
+)
+@api_view(["GET", "POST"])
+@permission_classes([IsPlacewiseAdmin])
+def admin_categories(request):
+    if request.method == "GET":
+        categories = Category.objects.all().order_by(
+            "sort_order", "id"
+        )
+        serializer = AdminCategorySerializer(
+            categories,
+            many=True,
+            context={"request": request},
+        )
+        return Response(serializer.data)
+
+    serializer = AdminCategorySerializer(
         data=request.data,
-        partial=True,
+        context={"request": request},
     )
 
-    serializer.is_valid(raise_exception=True)
-    serializer.save()
+    if serializer.is_valid():
+        category = serializer.save()
+        return Response(
+            AdminCategorySerializer(
+                category,
+                context={"request": request},
+            ).data,
+            status=status.HTTP_201_CREATED,
+        )
 
-    return Response({
-        "detail": "Маълумоти ҷой нав карда шуд.",
-        "id": place.id,
-        "name": place.name,
-        "status": place.status,
-    })
+    return Response(
+        serializer.errors,
+        status=status.HTTP_400_BAD_REQUEST,
+    )
+
+
+
+
+@extend_schema(
+    methods=["GET"],
+    operation_id="admin_category_detail",
+    responses={200: AdminCategorySerializer},
+)
+@extend_schema(
+    methods=["PATCH"],
+    operation_id="admin_category_update",
+    request=AdminCategorySerializer,
+    responses={200: AdminCategorySerializer},
+)
+@extend_schema(
+    methods=["DELETE"],
+    operation_id="admin_category_delete",
+    responses={204: None},
+)
+@api_view(["GET", "PATCH", "DELETE"])
+@permission_classes([IsPlacewiseAdmin])
+def admin_category_detail(request, category_id):
+    category = get_object_or_404(
+        Category,
+        id=category_id,
+    )
+
+    if request.method == "GET":
+        serializer = AdminCategorySerializer(
+            category,
+            context={"request": request},
+        )
+        return Response(serializer.data)
+
+    if request.method == "PATCH":
+        serializer = AdminCategorySerializer(
+            category,
+            data=request.data,
+            partial=True,
+            context={"request": request},
+        )
+
+        if serializer.is_valid():
+            serializer.save()
+            return Response(serializer.data)
+
+        return Response(
+            serializer.errors,
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    # DELETE
+    if Place.objects.filter(category=category).exists():
+        return Response(
+            {
+                "detail": (
+                    "Ин категория истифода мешавад. "
+                    "Аввал ҷойҳои вобастаро ба категорияи дигар гузаронед."
+                )
+            },
+            status=status.HTTP_409_CONFLICT,
+        )
+
+    category.delete()
+    return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+
+
+@extend_schema(
+    request=PlacePhotoSerializer,
+    responses={200: PlacePhotoSerializer(many=True), 201: PlacePhotoSerializer},
+)
+@api_view(["GET", "POST"])
+@permission_classes([IsPlacewiseAdmin])
+def admin_place_photos(request, place_id):
+    place = get_object_or_404(Place, id=place_id)
+
+    if request.method == "GET":
+        photos = place.photos.all()
+        serializer = PlacePhotoSerializer(
+            photos,
+            many=True,
+            context={"request": request},
+        )
+        return Response(serializer.data)
+
+    serializer = PlacePhotoSerializer(
+        data=request.data,
+        context={"request": request},
+    )
+    serializer.is_valid(raise_exception=True)
+    serializer.save(place=place)
+
+    return Response(serializer.data, status=status.HTTP_201_CREATED)
+
+
+
+@extend_schema(
+request=PlacePhotoSerializer,
+responses={200: PlacePhotoSerializer, 204: None},
+)
+@api_view(["PATCH", "DELETE"])
+@parser_classes([MultiPartParser, FormParser])
+@permission_classes([IsPlacewiseAdmin])
+def admin_photo_detail(request, photo_id):
+    photo = get_object_or_404(PlacePhoto, id=photo_id)
+
+    if request.method == "PATCH":
+        serializer = PlacePhotoSerializer(
+            photo,
+            data=request.data,
+            partial=True,
+            context={"request": request},
+        )
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+        return Response(serializer.data)
+
+    # Аввал файли суратро аз storage нест мекунем.
+    if photo.image:
+        photo.image.delete(save=False)
+
+    # Баъд сабти суратро аз база нест мекунем.
+    photo.delete()
+
+    return Response(status=status.HTTP_204_NO_CONTENT)
+
 

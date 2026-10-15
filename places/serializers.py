@@ -309,3 +309,115 @@ class AdminPlaceUpdateSerializer(serializers.ModelSerializer):
             "opening_hours",
             "price_level",
         ]
+
+
+
+class AdminCategorySerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Category
+        fields = [
+            "id",
+            "name",
+            "slug",
+            "key",
+            "image",
+            "icon",
+            "is_active",
+            "sort_order",
+            "created_at",
+        ]
+        read_only_fields = ["id", "created_at"]
+
+    def validate_name(self, value):
+        if not isinstance(value, dict):
+            raise serializers.ValidationError(
+                "name бояд object бо забонҳои ru, tg ва en бошад."
+            )
+
+        for lang in ("ru", "tg", "en"):
+            if not isinstance(value.get(lang), str) or not value[lang].strip():
+                raise serializers.ValidationError(
+                    f"name.{lang} ҳатмӣ аст ва бояд матн бошад."
+                )
+
+        return {
+            lang: value[lang].strip()
+            for lang in ("ru", "tg", "en")
+        }
+
+
+
+
+class AdminPlaceSerializer(serializers.ModelSerializer):
+    location = GeometryField(required=False, allow_null=True)
+    class Meta:
+        model = Place
+        fields = [
+            "id",
+            "name",
+            "slug",
+            "category",
+            "brand",
+            "subcategory",
+            "address",
+            "district",
+            "location",
+            "about",
+            "phones",
+            "website",
+            "opening_hours",
+            "price_level",
+            "status",
+            "source",
+            "source_id",
+            "rating",
+            "reviews_count",
+            "created_at",
+            "updated_at",
+        ]
+        read_only_fields = [
+            "id",
+            "rating",
+            "reviews_count",
+            "created_at",
+            "updated_at",
+        ]
+
+    def validate_name(self, value):
+        if not isinstance(value, dict):
+            raise serializers.ValidationError(
+                "name бояд object бо забонҳои ru, tg ва en бошад."
+            )
+
+        for lang in ("ru", "tg", "en"):
+            if not isinstance(value.get(lang), str) or not value[lang].strip():
+                raise serializers.ValidationError(
+                    f"name.{lang} ҳатмӣ аст."
+                )
+
+        return value
+
+    def validate_address(self, value):
+        if not isinstance(value, dict):
+            raise serializers.ValidationError(
+                "address бояд object бо забонҳои ru, tg ва en бошад."
+            )
+
+        for lang in ("ru", "tg", "en"):
+            if not isinstance(value.get(lang), str) or not value[lang].strip():
+                raise serializers.ValidationError(
+                    f"address.{lang} ҳатмӣ аст."
+                )
+
+        return value
+
+    def validate(self, attrs):
+        if self.instance is None:
+            for field in ("name", "slug", "category", "address"):
+                if field not in attrs:
+                    raise serializers.ValidationError({
+                        field: "Ин майдон ҳангоми сохтани ҷой ҳатмӣ аст."
+                    })
+
+        return attrs
+
