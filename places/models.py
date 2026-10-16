@@ -176,6 +176,10 @@ class PlacePhoto(models.Model):
         related_name="photos",
     )
     image = models.ImageField(upload_to="places/%Y/%m/")
+    thumbnail = models.ImageField(
+        upload_to="places/thumbnails/%Y/%m/",
+        blank=True,
+    )
     alt = models.JSONField(default=dict, blank=True)
     sort_order = models.PositiveIntegerField(default=0)
     is_cover = models.BooleanField(default=False)

@@ -53,7 +53,8 @@ class ImageProcessingTests(SimpleTestCase):
         result = process_uploaded_image(uploaded)
 
         with Image.open(result) as image:
-            self.assertEqual(image.size, (2000, 1000))
+            self.assertEqual(image.format, "WEBP")
+            self.assertEqual(image.size, (1200, 600))
 
     def test_invalid_file_is_rejected(self):
         uploaded = SimpleUploadedFile(

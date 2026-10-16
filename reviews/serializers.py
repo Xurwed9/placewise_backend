@@ -10,9 +10,17 @@ from drf_spectacular.utils import extend_schema_field
 class ReviewPhotoSerializer(serializers.ModelSerializer):
     class Meta:
         model = ReviewPhoto
-        fields = ["id", "image", "created_at"]
-        read_only_fields = ["id", "created_at"]
-
+        fields = [
+            "id",
+            "image",
+            "thumbnail",
+            "created_at",
+        ]
+        read_only_fields = [
+            "id",
+            "thumbnail",
+            "created_at",
+        ]
 
 
 class ReviewSerializer(serializers.ModelSerializer):

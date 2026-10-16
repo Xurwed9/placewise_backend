@@ -19,7 +19,8 @@ from django.contrib.auth import get_user_model
 from rest_framework import status
 from django.core.files.storage import default_storage
 
-from places.models import Category, Place, Favorite, PlacePhoto, Claim
+from places.models import Category, Place, Favorite, PlacePhoto, Claim, Brand
+from places.management.commands.import_places import get_or_create_brand
 from reviews.models import Review
 
 class PlacewiseAPITests(TestCase):
@@ -514,6 +515,98 @@ class ImportPlacesCommandTests(TestCase):
                 source_id="test-123",
             ).exists()
         )
+
+        def test_get_or_create_brand_creates_brand(self):
+            brand = get_or_create_brand(
+            name="Dodo Pizza",
+            branches=9,
+            external_url="https://dodopizza.tj",
+            )
+
+            self.assertEqual(Brand.objects.count(), 1)
+            self.assertEqual(brand.name["ru"], "Dodo Pizza")
+            self.assertEqual(brand.branches_count, 9)
+            self.assertEqual(brand.website, "https://dodopizza.tj")
+
+    def test_get_or_create_brand_reuses_existing_brand(self):
+        first = get_or_create_brand(
+            name="Dodo Pizza",
+            branches=3,
+        )
+        second = get_or_create_brand(
+            name="Dodo Pizza",
+            branches=9,
+        )
+
+        self.assertEqual(first.pk, second.pk)
+        self.assertEqual(Brand.objects.count(), 1)
+        self.assertEqual(second.branches_count, 9)
+
+    def test_get_or_create_brand_matches_normalized_name(self):
+        first = get_or_create_brand(
+            name="Dodo Pizza",
+            branches=3,
+        )
+        second = get_or_create_brand(
+            name="  DODO   PIZZA  ",
+            branches=9,
+        )
+
+        self.assertEqual(first.pk, second.pk)
+        self.assertEqual(Brand.objects.count(), 1)
+
+    def test_2gis_import_creates_place_and_connects_brand(self):
+        headers = [
+            "name",
+            "subcategory",
+            "address",
+            "phone",
+            "opening_hours",
+            "website_or_instagram",
+            "lat",
+            "lon",
+            "rating",
+            "reviews",
+            "branches",
+            "source",
+        ]
+
+        row = {
+            "name": "Dodo Pizza",
+            "subcategory": "pizza",
+            "address": "Хиёбони Рӯдакӣ, 156",
+            "phone": "+992 446100000",
+            "opening_hours": "09:00-01:00",
+            "website_or_instagram": "https://dodopizza.tj",
+            "lat": "38.588296",
+            "lon": "68.785423",
+            "rating": "0",
+            "reviews": "0",
+            "branches": "9",
+            "source": (
+                "https://2gis.tj/dushanbe/firm/"
+                "70000001100988348"
+            ),
+        }
+
+        with self.csv_path.open(
+            "w", encoding="utf-8", newline=""
+        ) as file:
+            writer = csv.DictWriter(file, fieldnames=headers)
+            writer.writeheader()
+            writer.writerow(row)
+
+        self.run_import()
+
+        place = Place.objects.get(
+            source="test-source",
+            source_id="70000001100988348",
+        )
+
+        self.assertIsNotNone(place.brand)
+        self.assertEqual(place.brand.name["ru"], "Dodo Pizza")
+        self.assertEqual(place.brand.branches_count, 9)
+        self.assertEqual(place.brand.website, "https://dodopizza.tj")
 
 
 
@@ -1657,4 +1750,160 @@ class AdminClaimAPITests(TestCase):
 
         self.assertEqual(response.status_code, 400)
 
+
+
+class AdminImport2GISAPITests(TestCase):
+    url = "/api/v1/admin/import/2gis/"
+
+    def setUp(self):
+        self.client = APIClient()
+        User = get_user_model()
+
+        self.admin = User.objects.create_user(
+            username="import_2gis_admin",
+            phone="+992900000091",
+            password="TestPass123!",
+            role="admin",
+            is_staff=True,
+        )
+
+        self.regular_user = User.objects.create_user(
+            username="import_2gis_user",
+            phone="+992900000092",
+            password="TestPass123!",
+        )
+
+        self.category = Category.objects.create(
+            key="api-import-test",
+            slug="api-import-test",
+            name={
+                "ru": "Тестовая категория",
+                "tg": "Категорияи санҷишӣ",
+                "en": "Test category",
+            },
+            is_active=True,
+        )
+
+        self.csv_content = (
+            "name,subcategory,address,phone,opening_hours,"
+            "website_or_instagram,lat,lon,rating,reviews,branches,source\n"
+            "API Test Cafe,cafe,Dushanbe,+992900000000,"
+            "09:00-22:00,,38.5598,68.7870,4.5,120,1,"
+            "https://2gis.com/firm/12345678901234567/\n"
+        ).replace("\n", "\r\n").encode("utf-8")
+
+    def make_csv(self, filename="places.csv", content=None):
+        return SimpleUploadedFile(
+            filename,
+            content if content is not None else self.csv_content,
+            content_type="text/csv",
+        )
+
+    def test_guest_cannot_import(self):
+        response = self.client.post(
+            self.url,
+            {"file": self.make_csv()},
+            format="multipart",
+        )
+
+        self.assertEqual(response.status_code, 401)
+
+    def test_regular_user_cannot_import(self):
+        self.client.force_authenticate(user=self.regular_user)
+
+        response = self.client.post(
+            self.url,
+            {"file": self.make_csv()},
+            format="multipart",
+        )
+
+        self.assertEqual(response.status_code, 403)
+
+    def test_non_csv_file_is_rejected(self):
+        self.client.force_authenticate(user=self.admin)
+
+        response = self.client.post(
+            self.url,
+            {"file": self.make_csv(filename="places.txt")},
+            format="multipart",
+        )
+
+        self.assertEqual(response.status_code, 400)
+
+    def test_dry_run_does_not_create_place(self):
+        self.client.force_authenticate(user=self.admin)
+
+        response = self.client.post(
+            self.url,
+            {
+                "file": self.make_csv(),
+                "category": self.category.key,
+                "source": "2gis",
+                "dry_run": "true",
+            },
+            format="multipart",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.json()["success"])
+        self.assertTrue(response.json()["dry_run"])
+        self.assertEqual(
+            response.json()["counts"]["created"],
+            1,
+        )
+        self.assertFalse(
+            Place.objects.filter(
+                source="2gis",
+                source_id="12345678901234567",
+            ).exists()
+        )
+
+    def test_admin_can_import_csv(self):
+        self.client.force_authenticate(user=self.admin)
+
+        response = self.client.post(
+            self.url,
+            {
+                "file": self.make_csv(),
+                "category": self.category.key,
+                "source": "2gis",
+            },
+            format="multipart",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.json()["success"])
+        self.assertFalse(response.json()["dry_run"])
+
+        place = Place.objects.get(
+            source="2gis",
+            source_id="12345678901234567",
+        )
+        self.assertEqual(place.name["ru"], "API Test Cafe")
+        self.assertEqual(place.category, self.category)
+        self.assertEqual(place.status, Place.Status.DRAFT)
+
+    def test_reimport_does_not_create_duplicate(self):
+        self.client.force_authenticate(user=self.admin)
+
+        for _ in range(2):
+            response = self.client.post(
+                self.url,
+                {
+                    "file": self.make_csv(),
+                    "category": self.category.key,
+                    "source": "2gis",
+                },
+                format="multipart",
+            )
+            self.assertEqual(response.status_code, 200)
+            self.assertTrue(response.json()["success"])
+
+        self.assertEqual(
+            Place.objects.filter(
+                source="2gis",
+                source_id="12345678901234567",
+            ).count(),
+            1,
+        )
 

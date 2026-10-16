@@ -9,3 +9,6 @@ avatars/
 
 # Generated static files
 staticfiles/
+# Local import samples and backup copies
+/imports/
+*.bak

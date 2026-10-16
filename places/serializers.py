@@ -2,6 +2,7 @@ from rest_framework.pagination import PageNumberPagination
 from rest_framework import serializers
 from rest_framework_gis.fields import GeometryField
 from drf_spectacular.utils import extend_schema_field
+from core.image_processing import process_uploaded_image_variants
 
 from .models import Category, Brand, Place, PlacePhoto, Favorite, Claim
 
@@ -110,8 +111,53 @@ class BrandSerializer(
 class PlacePhotoSerializer(serializers.ModelSerializer):
     class Meta:
         model = PlacePhoto
-        fields = ["id", "image", "alt", "sort_order", "is_cover"]
+        fields = [
+            "id",
+            "image",
+            "thumbnail",
+            "alt",
+            "sort_order",
+            "is_cover",
+        ]
+        read_only_fields = ["id", "thumbnail"]
 
+    def create(self, validated_data):
+        uploaded_image = validated_data.get("image")
+
+        if uploaded_image:
+            variants = process_uploaded_image_variants(
+                uploaded_image
+            )
+            validated_data["image"] = variants["image"]
+            validated_data["thumbnail"] = variants["thumbnail"]
+
+        return super().create(validated_data)
+
+    def update(self, instance, validated_data):
+        uploaded_image = validated_data.get("image")
+
+        if not uploaded_image:
+            return super().update(instance, validated_data)
+
+        variants = process_uploaded_image_variants(
+            uploaded_image
+        )
+
+        old_image = instance.image
+        old_thumbnail = instance.thumbnail
+
+        validated_data["image"] = variants["image"]
+        validated_data["thumbnail"] = variants["thumbnail"]
+
+        instance = super().update(instance, validated_data)
+
+        if old_image:
+            old_image.delete(save=False)
+
+        if old_thumbnail:
+            old_thumbnail.delete(save=False)
+
+        return instance
 
 class PlaceListSerializer(
     TranslatedSerializerMixin,

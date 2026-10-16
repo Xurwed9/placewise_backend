@@ -183,6 +183,10 @@ class ReviewPhoto(models.Model):
         related_name="photos",
     )
     image = models.ImageField(upload_to="reviews/%Y/%m/")
+    thumbnail = models.ImageField(
+        upload_to="reviews/thumbnails/%Y/%m/",
+        blank=True,
+    )
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:

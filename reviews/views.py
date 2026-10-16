@@ -35,7 +35,7 @@ from .serializers import (
     ModerateReviewSerializer,
 )
 from notifications.models import Notification
-from core.image_processing import process_uploaded_image
+from core.image_processing import process_uploaded_image_variants
 from django.db import transaction
 
 
@@ -571,12 +571,14 @@ def review_photo_upload(request, review_id):
         )
 
     try:
-        processed_image = process_uploaded_image(uploaded_file)
+        image_variants = process_uploaded_image_variants(
+        uploaded_file
+    )
     except ValueError as exc:
         return Response(
-            {"detail": str(exc)},
-            status=status.HTTP_400_BAD_REQUEST,
-        )
+        {"detail": str(exc)},
+        status=status.HTTP_400_BAD_REQUEST,
+    )
 
     with transaction.atomic():
         # Сабти отзывро муваққатан қулф мекунем.
@@ -599,17 +601,23 @@ def review_photo_upload(request, review_id):
         # Агар лимит пур нашуда бошад, аксро захира мекунем.
         photo = ReviewPhoto.objects.create(
             review=review,
-            image=processed_image,
+            image=image_variants["image"],
+            thumbnail=image_variants["thumbnail"],
         )
 
     return Response(
-        {
-            "id": photo.id,
-            "image": request.build_absolute_uri(photo.image.url),
-            "created_at": photo.created_at,
-        },
-        status=status.HTTP_201_CREATED,
-    )
+    {
+        "id": photo.id,
+        "image": request.build_absolute_uri(
+            photo.image.url
+        ),
+        "thumbnail": request.build_absolute_uri(
+            photo.thumbnail.url
+        ),
+        "created_at": photo.created_at,
+    },
+    status=status.HTTP_201_CREATED,
+)
 
 
 

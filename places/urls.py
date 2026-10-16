@@ -1,5 +1,5 @@
 from django.urls import path
-
+from .import_views import admin_import_2gis
 from .views import (
     category_list,
     place_list,
@@ -14,6 +14,7 @@ from .views import (
     upload_image, admin_place_publish, admin_place_hide,
     admin_places_list,admin_place_update,admin_categories,
     admin_category_detail,admin_place_photos, admin_photo_detail,
+
 )
 
 urlpatterns = [
@@ -87,4 +88,10 @@ urlpatterns = [
     name="admin-place-photos",
 ),
     path("admin/photos/<int:photo_id>/",admin_photo_detail,name="admin-photo-detail"),
+
+    path(
+    "admin/import/2gis/",
+    admin_import_2gis,
+    name="admin-import-2gis",
+),
 ]

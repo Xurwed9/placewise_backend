@@ -41,8 +41,7 @@ from .serializers import (
 from reviews.models import Review
 from reviews.serializers import ReviewSerializer
 from notifications.models import Notification
-from core.image_processing import process_uploaded_image
-
+from core.image_processing import process_uploaded_image_variants
 
 class PlacePagination(PageNumberPagination):
     page_size = 20
@@ -1317,7 +1316,7 @@ def admin_claim_review(request, claim_id):
             "file": serializers.ImageField(),
         },
     ),
-    
+
     responses={
     201: inline_serializer(
         name="UploadImageResponse",
@@ -1354,28 +1353,37 @@ def upload_image(request):
         )
 
     try:
-        processed_image = process_uploaded_image(uploaded_file)
+        variants = process_uploaded_image_variants(uploaded_file)
     except ValueError as exc:
         return Response(
             {"detail": str(exc)},
             status=status.HTTP_400_BAD_REQUEST,
         )
 
-    path = default_storage.save(
-        f"uploads/{processed_image.name}",
-        processed_image,
+    image_path = default_storage.save(
+        f"uploads/{variants['image'].name}",
+        variants["image"],
+    )
+
+    thumbnail_path = default_storage.save(
+        f"uploads/thumbnails/{variants['thumbnail'].name}",
+        variants["thumbnail"],
     )
 
     return Response(
         {
             "url": request.build_absolute_uri(
-                default_storage.url(path)
+                default_storage.url(image_path)
             ),
-            "filename": path.rsplit("/", 1)[-1],
+            "thumbnail_url": request.build_absolute_uri(
+                default_storage.url(thumbnail_path)
+            ),
+            "filename": image_path.rsplit("/", 1)[-1],
             "format": "webp",
         },
         status=status.HTTP_201_CREATED,
     )
+
 
 
 
@@ -1555,7 +1563,7 @@ def admin_place_update(request, place_id):
             status=status.HTTP_409_CONFLICT,
         )
 
-    
+
     photo_files = [
         photo.image
         for photo in place.photos.all()
@@ -1571,14 +1579,10 @@ def admin_place_update(request, place_id):
 
 
 
-
-
-
 class AdminPlacePagination(PageNumberPagination):
     page_size = 20
     page_size_query_param = "page_size"
     max_page_size = 100
-
 
 
 
@@ -1747,12 +1751,15 @@ def admin_photo_detail(request, photo_id):
         return Response(serializer.data)
 
     # Аввал файли суратро аз storage нест мекунем.
+    # Аввал акси асосиро нест мекунем.
     if photo.image:
         photo.image.delete(save=False)
+
+    # Баъд thumbnail-ро нест мекунем.
+    if photo.thumbnail:
+        photo.thumbnail.delete(save=False)
 
     # Баъд сабти суратро аз база нест мекунем.
     photo.delete()
 
     return Response(status=status.HTTP_204_NO_CONTENT)
-
-

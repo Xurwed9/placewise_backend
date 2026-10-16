@@ -208,3 +208,178 @@ class AuthAPITests(TestCase):
             response.status_code,
             status.HTTP_403_FORBIDDEN,
         )
+
+
+
+class AdminUserAPITests(TestCase):
+    def setUp(self):
+        self.client = APIClient()
+
+        self.admin = User.objects.create_user(
+            username="admin",
+            phone="+992900000001",
+            password="TestPassword123!",
+            name="Admin",
+            role="admin",
+            is_staff=True,
+        )
+
+        self.user = User.objects.create_user(
+            username="customer",
+            phone="+992900000002",
+            password="TestPassword123!",
+            name="Customer",
+        )
+
+        self.list_url = "/api/v1/admin/users/"
+        self.detail_url = f"{self.list_url}{self.user.id}/"
+
+        self.client.force_authenticate(user=self.admin)
+
+    def test_admin_can_list_users(self):
+        response = self.client.get(self.list_url)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertIn("results", response.data)
+
+    def test_admin_can_search_users_by_phone(self):
+        response = self.client.get(
+            self.list_url,
+            {"search": "+992900000002"},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(response.data["results"]), 1)
+        self.assertEqual(
+            response.data["results"][0]["phone"],
+            self.user.phone,
+        )
+
+    def test_admin_can_get_user_detail(self):
+        response = self.client.get(self.detail_url)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["id"], self.user.id)
+
+    def test_admin_can_update_user_name(self):
+        response = self.client.patch(
+            self.detail_url,
+            {"name": "Updated Name"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        self.user.refresh_from_db()
+        self.assertEqual(self.user.name, "Updated Name")
+
+    def test_admin_can_block_and_unblock_user(self):
+        block_response = self.client.post(
+            f"{self.detail_url}block/"
+        )
+
+        self.assertEqual(
+            block_response.status_code,
+            status.HTTP_200_OK,
+        )
+
+        self.user.refresh_from_db()
+        self.assertTrue(self.user.is_blocked)
+
+        unblock_response = self.client.post(
+            f"{self.detail_url}unblock/"
+        )
+
+        self.assertEqual(
+            unblock_response.status_code,
+            status.HTTP_200_OK,
+        )
+
+        self.user.refresh_from_db()
+        self.assertFalse(self.user.is_blocked)
+
+    def test_admin_cannot_block_self(self):
+        response = self.client.post(
+            f"{self.list_url}{self.admin.id}/block/"
+        )
+
+        self.assertEqual(
+            response.status_code,
+            status.HTTP_400_BAD_REQUEST,
+        )
+
+    def test_admin_cannot_change_own_role(self):
+        response = self.client.patch(
+            f"{self.list_url}{self.admin.id}/",
+            {"role": "user"},
+            format="json",
+        )
+
+        self.assertEqual(
+            response.status_code,
+            status.HTTP_400_BAD_REQUEST,
+        )
+
+    def test_regular_user_cannot_access_admin_api(self):
+        self.client.force_authenticate(user=self.user)
+
+        response = self.client.get(self.list_url)
+
+        self.assertEqual(
+            response.status_code,
+            status.HTTP_403_FORBIDDEN,
+        )
+
+    def test_missing_user_returns_404(self):
+        response = self.client.get(
+            f"{self.list_url}999999/"
+        )
+
+        self.assertEqual(
+            response.status_code,
+            status.HTTP_404_NOT_FOUND,
+        )
+
+    def test_admin_cannot_assign_admin_role(self):
+        response = self.client.patch(
+            self.detail_url,
+            {"role": "admin"},
+            format="json",
+        )
+
+        self.assertEqual(
+            response.status_code,
+            status.HTTP_400_BAD_REQUEST,
+        )
+
+        self.user.refresh_from_db()
+        self.assertEqual(self.user.role, "user")
+
+
+    def test_admin_cannot_manage_another_admin(self):
+        another_admin = User.objects.create_user(
+            username="another_admin",
+            phone="+992900000003",
+            password="TestPassword123!",
+            name="Another Admin",
+            role="admin",
+            is_staff=True,
+        )
+
+        detail_url = f"{self.list_url}{another_admin.id}/"
+
+        response = self.client.patch(
+            detail_url,
+            {"name": "Changed"},
+            format="json",
+        )
+        self.assertEqual(
+            response.status_code,
+            status.HTTP_403_FORBIDDEN,
+        )
+
+        response = self.client.post(f"{detail_url}block/")
+        self.assertEqual(
+            response.status_code,
+            status.HTTP_403_FORBIDDEN,
+        )
