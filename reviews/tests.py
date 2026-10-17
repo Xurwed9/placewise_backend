@@ -495,10 +495,15 @@ class ReviewModerationAndReportAPITests(TestCase):
     def setUp(self):
         self.client = APIClient()
 
-    def create_review(self, status_value=Review.Status.PENDING):
+    def create_review(
+        self,
+        status_value=Review.Status.PENDING,
+        user=None,
+        place=None,
+    ):
         return Review.objects.create(
-            user=self.reviewer,
-            place=self.place,
+            user=user or self.reviewer,
+            place=place or self.place,
             rating=5,
             text=(
                 "Ин ҷой хеле хуб аст ва хизматрасонӣ босифат мебошад. "
@@ -520,7 +525,10 @@ class ReviewModerationAndReportAPITests(TestCase):
 
     def test_moderator_queue_contains_only_pending_reviews(self):
         pending_review = self.create_review()
-        self.create_review(Review.Status.APPROVED)
+        self.create_review(
+            Review.Status.APPROVED,
+            user=self.regular_user,
+        )
 
         self.client.force_authenticate(user=self.moderator)
 

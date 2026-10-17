@@ -9,7 +9,7 @@ from django.core.cache import cache
 from django.utils import timezone
 
 from rest_framework import status
-from rest_framework.decorators import api_view, permission_classes, parser_classes
+from rest_framework.decorators import api_view, permission_classes, parser_classes,throttle_classes
 from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 from django.contrib.auth import get_user_model
@@ -17,9 +17,9 @@ from django.contrib.auth.hashers import check_password
 from rest_framework_simplejwt.tokens import RefreshToken
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.parsers import MultiPartParser, FormParser, JSONParser
-from drf_spectacular.utils import extend_schema
 from drf_spectacular.utils import extend_schema, OpenApiRequest
 from .serializers import UserProfileSerializer, UserProfileUpdateSerializer
+from .throttles import OTPRequestRateThrottle
 
 from .serializers import UserProfileSerializer
 
@@ -63,6 +63,7 @@ def normalize_phone(phone):
 )
 @api_view(["POST"])
 @permission_classes([AllowAny])
+@throttle_classes([OTPRequestRateThrottle])
 def request_code(request):
     raw_phone = request.data.get("phone", "")
 

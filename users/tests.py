@@ -1,4 +1,5 @@
-
+from django.core.cache import cache
+from django.test import override_settings
 from datetime import timedelta
 
 from django.contrib.auth import get_user_model
@@ -15,8 +16,18 @@ from users.models import PhoneOTP
 User = get_user_model()
 
 
+@override_settings(
+    CACHES={
+        "default": {
+            "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
+            "LOCATION": "placewise-otp-tests",
+        }
+    }
+)
 class AuthAPITests(TestCase):
     def setUp(self):
+        super().setUp()
+        cache.clear()
         self.client = APIClient()
         self.phone = "+992900123456"
         self.request_url = "/api/v1/auth/request-code/"

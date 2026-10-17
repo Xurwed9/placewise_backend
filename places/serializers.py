@@ -359,6 +359,8 @@ class AdminPlaceUpdateSerializer(serializers.ModelSerializer):
 
 
 class AdminCategorySerializer(serializers.ModelSerializer):
+    image = serializers.ImageField(required=False, allow_null=True)
+
     class Meta:
         model = Category
         fields = [

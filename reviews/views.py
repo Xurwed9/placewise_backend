@@ -36,7 +36,7 @@ from .serializers import (
 )
 from notifications.models import Notification
 from core.image_processing import process_uploaded_image_variants
-from django.db import transaction
+from django.db import transaction, IntegrityError
 
 
 def user_can_act(user):
@@ -136,11 +136,18 @@ def place_reviews(request, slug):
     serializer = ReviewCreateSerializer(data=request.data)
     serializer.is_valid(raise_exception=True)
 
-    review = serializer.save(
-        user=request.user,
-        place=place,
-        status=Review.Status.PENDING,
-    )
+    try:
+        with transaction.atomic():
+            review = serializer.save(
+                user=request.user,
+                place=place,
+                status=Review.Status.PENDING,
+            )
+    except IntegrityError:
+        return Response(
+            {"detail": "Шумо аллакай барои ин ҷой отзыв доред."},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
 
     return Response(
         {

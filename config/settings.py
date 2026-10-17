@@ -112,6 +112,8 @@ MIDDLEWARE = [
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
 ]
 
+SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
+
 SECURE_SSL_REDIRECT = (
     os.getenv("DJANGO_SECURE_SSL_REDIRECT", "False").lower()
     in {"true", "1", "yes", "on"}
@@ -306,11 +308,29 @@ REST_FRAMEWORK = {
         "rest_framework.throttling.AnonRateThrottle",
         "rest_framework.throttling.UserRateThrottle",
     ],
+
     "DEFAULT_THROTTLE_RATES": {
-        "anon": "100/hour",
-        "user": "1000/hour",
+        "anon": "60/minute",
+        "user": "120/minute",
+        "otp_request": "5/hour",
     },
+
 }
+
+
+# Redis cache
+CACHES = {
+    "default": {
+        "BACKEND": "django.core.cache.backends.redis.RedisCache",
+        "LOCATION": os.environ.get(
+            "REDIS_URL",
+            "redis://127.0.0.1:6379/1",
+        ),
+        "TIMEOUT": 300,
+        "KEY_PREFIX": "placewise",
+    }
+}
+
 
 SIMPLE_JWT = {
     "SIGNING_KEY": os.environ["JWT_SIGNING_KEY"],

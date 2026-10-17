@@ -1,14 +1,23 @@
 from rest_framework import serializers
 from .models import User
+from core.image_processing import process_uploaded_image
 
 
 class UserProfileSerializer(serializers.ModelSerializer):
-    avatar = serializers.ImageField(required=False)
+    avatar = serializers.ImageField(read_only=True)
 
     class Meta:
         model = User
         fields = ["id", "phone", "name", "language", "avatar", "role"]
-        read_only_fields = ["id", "phone"]
+        read_only_fields = fields
+
+
+class UserProfileUpdateSerializer(serializers.ModelSerializer):
+    avatar = serializers.ImageField(required=False)
+
+    class Meta:
+        model = User
+        fields = ["name", "language", "avatar"]
 
     def validate_language(self, value):
         if value not in {"ru", "tg", "en"}:
@@ -17,14 +26,11 @@ class UserProfileSerializer(serializers.ModelSerializer):
             )
         return value
 
-
-class UserProfileUpdateSerializer(serializers.ModelSerializer):
-    avatar = serializers.ImageField(required=False)
-
-    class Meta:
-        model = User
-        fields = ["name", "phone", "language", "avatar","role"]
-
+    def validate_avatar(self, value):
+        try:
+            return process_uploaded_image(value)
+        except ValueError as exc:
+            raise serializers.ValidationError(str(exc)) from exc
 
 class ModerateReviewSerializer(serializers.Serializer):
     action = serializers.ChoiceField(

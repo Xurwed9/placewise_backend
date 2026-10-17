@@ -131,6 +131,7 @@ def admin_import_2gis(request):
                 ) as report_file:
                     report_rows = list(csv.DictReader(report_file))
 
+
             counts = {
                 "created": 0,
                 "updated": 0,
@@ -139,9 +140,16 @@ def admin_import_2gis(request):
                 "warnings": 0,
             }
 
+            action_statuses = {
+                "created",
+                "updated",
+                "would_created",
+                "would_updated",
+            }
+
             for row in report_rows:
                 row_status = row.get("status", "")
-                message = row.get("message", "")
+                message = row.get("message", "").strip()
 
                 if row_status in {"created", "would_created"}:
                     counts["created"] += 1
@@ -152,13 +160,19 @@ def admin_import_2gis(request):
                 elif row_status == "error":
                     counts["errors"] += 1
 
-                if message:
-                    # Warnings are messages on non-error rows.
-                    if row_status != "error":
-                        counts["warnings"] += 1
+                # Паёми duplicate warning ҳисоб намешавад.
+                # Warning-ҳои сатрҳои коркардшуда ҳисоб мешаванд.
+                if row_status in action_statuses and message:
+                    counts["warnings"] += len(message.split("; "))
+
+            has_successful_rows = (
+                counts["created"] + counts["updated"] > 0
+            )
+            has_errors = command_error is not None or counts["errors"] > 0
 
             response_data = {
-                "success": command_error is None,
+                "success": not has_errors,
+                "partial_success": has_successful_rows and has_errors,
                 "dry_run": dry_run,
                 "category": category or Path(filename).stem,
                 "source": source,
@@ -172,6 +186,7 @@ def admin_import_2gis(request):
 
             if command_error:
                 response_data["detail"] = command_error
+
 
             # Row-level errors are included in the report. Return the report
             # even when some rows failed so the admin can inspect the result.

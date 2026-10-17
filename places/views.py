@@ -1,6 +1,10 @@
 from django.core.files.storage import default_storage
 from rest_framework.decorators import parser_classes
-from rest_framework.parsers import MultiPartParser, FormParser
+from rest_framework.parsers import (
+    MultiPartParser,
+    FormParser,
+    JSONParser,
+)
 from django.db.models import Q, TextField, Count
 from django.db.models.functions import Cast
 from django.shortcuts import get_object_or_404
@@ -10,10 +14,9 @@ from rest_framework.decorators import api_view, permission_classes
 from rest_framework.pagination import PageNumberPagination
 from rest_framework.response import Response
 from django.contrib.gis.geos import Polygon
-from drf_spectacular.utils import extend_schema, OpenApiParameter, OpenApiTypes,extend_schema_view, OpenApiResponse
+from drf_spectacular.utils import extend_schema, OpenApiParameter, OpenApiTypes,extend_schema_view, OpenApiResponse,OpenApiRequest
 from rest_framework.permissions import IsAuthenticated
 from users.permissions import IsPlacewiseAdmin
-from drf_spectacular.utils import extend_schema, OpenApiParameter
 from drf_spectacular.utils import inline_serializer
 from rest_framework import serializers
 from django.utils import timezone
@@ -42,6 +45,31 @@ from reviews.models import Review
 from reviews.serializers import ReviewSerializer
 from notifications.models import Notification
 from core.image_processing import process_uploaded_image_variants
+
+import hashlib
+from django.core.cache import cache
+
+
+
+def _public_api_cache_key(request, endpoint):
+
+    accept_language = request.headers.get("Accept-Language", "")
+
+    cache_version = cache.get("public-api-version", 1)
+
+    raw_key = (
+        f"{endpoint}:"
+        f"{cache_version}:"
+        f"{request.get_full_path()}:"
+        f"{accept_language}"
+    )
+
+    digest = hashlib.sha256(
+        raw_key.encode("utf-8")
+    ).hexdigest()
+
+    return f"public-api:{digest}"
+
 
 class PlacePagination(PageNumberPagination):
     page_size = 20
@@ -236,6 +264,15 @@ def get_open_now(opening_hours):
 )
 @api_view(["GET"])
 def place_list(request):
+    cache_key = _public_api_cache_key(
+        request,
+        "place-list",
+    )
+
+    cached_data = cache.get(cache_key)
+
+    if cached_data is not None:
+        return Response(cached_data)
     places = (
         Place.objects
         .filter(status=Place.Status.PUBLISHED)
@@ -467,7 +504,17 @@ def place_list(request):
         context={"request": request},
     )
 
-    return paginator.get_paginated_response(serializer.data)
+    response = paginator.get_paginated_response(
+        serializer.data
+    )
+
+    cache.set(
+        cache_key,
+        response.data,
+        timeout=30,
+    )
+
+    return response
 
 
 
@@ -487,6 +534,15 @@ def place_list(request):
 )
 @api_view(["GET"])
 def place_detail(request, slug):
+    cache_key = _public_api_cache_key(
+        request,
+        "place-detail",
+    )
+
+    cached_data = cache.get(cache_key)
+
+    if cached_data is not None:
+        return Response(cached_data)
     place = get_object_or_404(
         Place.objects
         .filter(status=Place.Status.PUBLISHED)
@@ -500,7 +556,15 @@ def place_detail(request, slug):
         context={"request": request},
     )
 
-    return Response(serializer.data)
+    data = serializer.data
+
+    cache.set(
+        cache_key,
+        data,
+        timeout=30,
+    )
+
+    return Response(data)
 
 
 
@@ -1594,10 +1658,11 @@ class AdminPlacePagination(PageNumberPagination):
 @extend_schema(
     methods=["POST"],
     operation_id="admin_category_create",
-    request=AdminCategorySerializer,
+    request={"multipart/form-data": AdminCategorySerializer},
     responses={201: AdminCategorySerializer},
 )
 @api_view(["GET", "POST"])
+@parser_classes([JSONParser, MultiPartParser, FormParser])
 @permission_classes([IsPlacewiseAdmin])
 def admin_categories(request):
     if request.method == "GET":
@@ -1642,7 +1707,7 @@ def admin_categories(request):
 @extend_schema(
     methods=["PATCH"],
     operation_id="admin_category_update",
-    request=AdminCategorySerializer,
+    request={"multipart/form-data": AdminCategorySerializer},
     responses={200: AdminCategorySerializer},
 )
 @extend_schema(
@@ -1651,6 +1716,7 @@ def admin_categories(request):
     responses={204: None},
 )
 @api_view(["GET", "PATCH", "DELETE"])
+@parser_classes([JSONParser, MultiPartParser, FormParser])
 @permission_classes([IsPlacewiseAdmin])
 def admin_category_detail(request, category_id):
     category = get_object_or_404(
@@ -1701,10 +1767,14 @@ def admin_category_detail(request, category_id):
 
 
 @extend_schema(
-    request=PlacePhotoSerializer,
-    responses={200: PlacePhotoSerializer(many=True), 201: PlacePhotoSerializer},
+    request={"multipart/form-data": PlacePhotoSerializer},
+    responses={
+        200: PlacePhotoSerializer(many=True),
+        201: PlacePhotoSerializer,
+    },
 )
 @api_view(["GET", "POST"])
+@parser_classes([MultiPartParser, FormParser])
 @permission_classes([IsPlacewiseAdmin])
 def admin_place_photos(request, place_id):
     place = get_object_or_404(Place, id=place_id)

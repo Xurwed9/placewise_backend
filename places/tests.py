@@ -516,17 +516,16 @@ class ImportPlacesCommandTests(TestCase):
             ).exists()
         )
 
-        def test_get_or_create_brand_creates_brand(self):
-            brand = get_or_create_brand(
-            name="Dodo Pizza",
-            branches=9,
-            external_url="https://dodopizza.tj",
-            )
-
-            self.assertEqual(Brand.objects.count(), 1)
-            self.assertEqual(brand.name["ru"], "Dodo Pizza")
-            self.assertEqual(brand.branches_count, 9)
-            self.assertEqual(brand.website, "https://dodopizza.tj")
+    def test_get_or_create_brand_creates_brand(self):
+        brand = get_or_create_brand(
+        name="Dodo Pizza",
+        branches=9,
+        external_url="https://dodopizza.tj",
+        )
+        self.assertEqual(Brand.objects.count(), 1)
+        self.assertEqual(brand.name["ru"], "Dodo Pizza")
+        self.assertEqual(brand.branches_count, 9)
+        self.assertEqual(brand.website, "https://dodopizza.tj")
 
     def test_get_or_create_brand_reuses_existing_brand(self):
         first = get_or_create_brand(
@@ -1143,9 +1142,9 @@ class AdminPlaceCRUDAPITests(TestCase):
             slug="crud-test-place",
             address={"ru": "Душанбе", "tg": "Душанбе", "en": "Dushanbe"},
             status=Place.Status.DRAFT,
-        )      
+        )
 
-    
+
     def test_admin_places_pagination_respects_page_size(self):
         Place.objects.create(
             category=self.category,
@@ -1218,7 +1217,7 @@ class AdminPlaceCRUDAPITests(TestCase):
         self.assertAlmostEqual(self.place.location.x, 68.7800, places=4)
         self.assertAlmostEqual(self.place.location.y, 38.5598, places=4)
 
-    
+
     def test_deleting_place_removes_photo_file(self):
         image = Image.new("RGB", (10, 10), color="red")
         image_bytes = BytesIO()
@@ -1907,3 +1906,48 @@ class AdminImport2GISAPITests(TestCase):
             1,
         )
 
+
+    def test_mixed_valid_and_invalid_rows_report_partial_success(self):
+        self.client.force_authenticate(user=self.admin)
+
+        csv_content = (
+            "name,subcategory,address,phone,opening_hours,"
+            "website_or_instagram,lat,lon,rating,reviews,branches,source\n"
+            "Valid Cafe,cafe,Dushanbe,+992900000000,"
+            "09:00-22:00,,38.5598,68.7870,4.5,120,1,"
+            "https://2gis.com/firm/12345678901234567/\n"
+            "Invalid Cafe,cafe,,+992900000001,"
+            "09:00-22:00,,38.5598,68.7870,4.0,10,1,"
+            "https://2gis.com/firm/12345678901234568/\n"
+        ).replace("\n", "\r\n").encode("utf-8")
+
+        response = self.client.post(
+            self.url,
+            {
+                "file": self.make_csv(content=csv_content),
+                "category": self.category.key,
+                "source": "2gis",
+            },
+            format="multipart",
+        )
+
+        data = response.json()
+
+        self.assertEqual(response.status_code, 200)
+        self.assertFalse(data["success"])
+        self.assertTrue(data["partial_success"])
+        self.assertEqual(data["counts"]["created"], 1)
+        self.assertEqual(data["counts"]["errors"], 1)
+
+        self.assertTrue(
+            Place.objects.filter(
+                source="2gis",
+                source_id="12345678901234567",
+            ).exists()
+        )
+        self.assertFalse(
+            Place.objects.filter(
+                source="2gis",
+                source_id="12345678901234568",
+            ).exists()
+        )

@@ -82,10 +82,16 @@ class Review(models.Model):
         ordering = ["-created_at"]
         indexes = [
             models.Index(
-                fields=["place", "status", "-created_at"],
-                name="review_place_status_date_idx",
-            ),
-        ]
+            fields=["place", "status", "-created_at"],
+            name="review_place_status_date_idx",
+        ),
+    ]
+        constraints = [
+            models.UniqueConstraint(
+            fields=["user", "place"],
+            name="unique_review_per_user_place",
+        ),
+    ]
 
     def __str__(self):
         return f"Review #{self.pk} — {self.rating}/5"
