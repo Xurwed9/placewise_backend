@@ -1,0 +1,16 @@
+.git
+.github
+.venv
+.venv_old
+__pycache__
+*.py[cod]
+*.bak
+.env
+db.sqlite3
+media
+avatars
+staticfiles
+imports
+postman
+backups
+tz.md

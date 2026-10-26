@@ -1,5 +1,4 @@
-
-from django.urls import path
+from django.urls import re_path
 
 from .views import (
     place_reviews,
@@ -7,50 +6,68 @@ from .views import (
     review_like,
     review_report,
     moderation_queue,
-    moderate_review,review_photo_upload,
-    moderation_reports, resolve_report,
+    review_photo_upload,
+    review_photo_delete,
+    moderation_reports,
+    resolve_report,
+    admin_review_approve,
+    admin_review_reject,
 )
 
 urlpatterns = [
-    path(
-        "places/<slug:slug>/reviews/",
+    re_path(
+        r"^places/(?P<slug>[-a-zA-Z0-9_]+)/reviews/?$",
         place_reviews,
         name="place-reviews",
     ),
-    path(
-        "reviews/<int:review_id>/",
+    re_path(
+        r"^reviews/(?P<review_id>\d+)/?$",
         review_detail,
         name="review-detail",
     ),
-    path(
-        "reviews/<int:review_id>/like/",
+    re_path(
+        r"^reviews/(?P<review_id>\d+)/like/?$",
         review_like,
         name="review-like",
     ),
-    path(
-        "reviews/<int:review_id>/report/",
+    re_path(
+        r"^reviews/(?P<review_id>\d+)/report/?$",
         review_report,
         name="review-report",
     ),
-    path(
-    "moderation/reviews/",
-    moderation_queue,
-    name="moderation-queue",
-    ),  
-    path(
-        "moderation/reviews/<int:review_id>/",
-        moderate_review,
-        name="moderate-review",),
-    path(
-    "reviews/<int:review_id>/photos",
-    review_photo_upload,
-    name="review-photo-upload"),
-    path(
-    "admin/reports",
-    moderation_reports,
-    name="moderation-reports"),
-    path(
-    "admin/reports/<int:report_id>/resolve",
-    resolve_report,
-    name="resolve-report"),
+    re_path(
+        r"^admin/reviews/?$",
+        moderation_queue,
+        name="admin-reviews",
+    ),
+    re_path(
+        r"^admin/reviews/(?P<review_id>\d+)/approve/?$",
+        admin_review_approve,
+        name="admin-review-approve",
+    ),
+    re_path(
+        r"^admin/reviews/(?P<review_id>\d+)/reject/?$",
+        admin_review_reject,
+        name="admin-review-reject",
+    ),
+    re_path(
+        r"^reviews/(?P<review_id>\d+)/photos/?$",
+        review_photo_upload,
+        name="review-photo-upload",
+    ),
+    re_path(
+        r"^reviews/(?P<review_id>\d+)/photos/(?P<photo_id>\d+)/?$",
+        review_photo_delete,
+        name="review-photo-delete",
+    ),
+    re_path(
+        r"^admin/reports/?$",
+        moderation_reports,
+        name="moderation-reports",
+    ),
+    re_path(
+        r"^admin/reports/(?P<report_id>\d+)/resolve/?$",
+        resolve_report,
+        name="resolve-report",
+    ),
 ]

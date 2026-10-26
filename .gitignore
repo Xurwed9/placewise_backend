@@ -12,3 +12,4 @@ staticfiles/
 # Local import samples and backup copies
 /imports/
 *.bak
+tz.md

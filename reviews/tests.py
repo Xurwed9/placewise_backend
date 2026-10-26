@@ -1,4 +1,5 @@
 from io import BytesIO
+from pathlib import Path
 
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import override_settings
@@ -95,6 +96,22 @@ class PlaceReviewsTests(TestCase):
         self.assertEqual(response.status_code, 400)
         self.assertEqual(Review.objects.count(), 0)
 
+    def test_short_review_returns_tz_error_code(self):
+        self.client.force_authenticate(user=self.user)
+
+        response = self.client.post(
+            self.url,
+            {"rating": 5, "text": "Коротко"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(
+            response.data["error"]["code"],
+            "REVIEW_TOO_SHORT",
+        )
+        self.assertIn("50", response.data["error"]["message"])
+
     def test_pending_review_does_not_change_place_rating(self):
         self.client.force_authenticate(user=self.user)
 
@@ -126,7 +143,8 @@ class PlaceReviewsTests(TestCase):
         response = self.client.get(self.url)
 
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.data, [])
+        self.assertEqual(response.data["items"], [])
+        self.assertEqual(response.data["total"], 0)
 
 
 
@@ -160,6 +178,74 @@ class PlaceReviewsTests(TestCase):
         self.assertEqual(self.place.reviews_count, 0)
 
 
+
+
+    def test_review_with_links_is_rejected_automatically(self):
+        self.client.force_authenticate(user=self.user)
+
+        response = self.client.post(
+            self.url,
+            {
+                "rating": 5,
+                "text": (
+                    "Хорошее место, но подробности смотрите тут "
+                    "https://spam.example/promo и пишите нам."
+                ),
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 201)
+        review = Review.objects.get(place=self.place)
+        self.assertEqual(review.status, Review.Status.REJECTED)
+        self.assertEqual(review.moderation_note, "LINKS_NOT_ALLOWED")
+        self.assertEqual(response.data["review"]["status"], "rejected")
+        self.assertTrue(
+            Notification.objects.filter(
+                review=review,
+                notification_type=Notification.Type.REVIEW_REJECTED,
+            ).exists()
+        )
+
+    def test_review_with_phone_is_rejected_automatically(self):
+        self.client.force_authenticate(user=self.user)
+
+        response = self.client.post(
+            self.url,
+            {
+                "rating": 5,
+                "text": (
+                    "Отличное место, всё понравилось. Звоните нам "
+                    "по номеру +992 900 123 456 для подробностей."
+                ),
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 201)
+        review = Review.objects.get(place=self.place)
+        self.assertEqual(review.status, Review.Status.REJECTED)
+        self.assertEqual(review.moderation_note, "PHONE_NOT_ALLOWED")
+
+    def test_review_with_profanity_is_rejected_automatically(self):
+        self.client.force_authenticate(user=self.user)
+
+        response = self.client.post(
+            self.url,
+            {
+                "rating": 1,
+                "text": (
+                    "Это место полный аблаҳ, обслуживание ужасное "
+                    "и персонал совсем не помогает клиентам."
+                ),
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 201)
+        review = Review.objects.get(place=self.place)
+        self.assertEqual(review.status, Review.Status.REJECTED)
+        self.assertEqual(review.moderation_note, "PROFANITY")
 
 
 class ReviewNotificationIntegrationTests(TestCase):
@@ -221,9 +307,7 @@ class ReviewNotificationIntegrationTests(TestCase):
         self.client.force_authenticate(user=self.moderator)
 
         response = self.client.post(
-            f"/api/v1/moderation/reviews/{review.id}/",
-            {"action": "approve"},
-            format="json",
+            f"/api/v1/admin/reviews/{review.id}/approve"
         )
 
         self.assertEqual(response.status_code, 200)
@@ -243,11 +327,8 @@ class ReviewNotificationIntegrationTests(TestCase):
         self.client.force_authenticate(user=self.moderator)
 
         response = self.client.post(
-            f"/api/v1/moderation/reviews/{review.id}/",
-            {
-                "action": "reject",
-                "reason": "Маълумоти нокифоя",
-            },
+            f"/api/v1/admin/reviews/{review.id}/reject",
+            {"reason": "Маълумоти нокифоя"},
             format="json",
         )
 
@@ -455,6 +536,79 @@ class ReviewPhotoUploadTests(TestCase):
 
 
 
+    def make_stored_photo(self):
+        return ReviewPhoto.objects.create(
+            review=self.review,
+            image=SimpleUploadedFile(
+                "stored-photo.jpg",
+                b"test-image",
+                content_type="image/jpeg",
+            ),
+            thumbnail=SimpleUploadedFile(
+                "stored-photo-thumb.jpg",
+                b"test-thumbnail",
+                content_type="image/jpeg",
+            ),
+        )
+
+    def test_owner_can_delete_photo_by_endpoint(self):
+        photo = self.make_stored_photo()
+        image_path = Path(photo.image.path)
+        thumbnail_path = Path(photo.thumbnail.path)
+        self.client.force_authenticate(user=self.user)
+
+        response = self.client.delete(
+            f"{self.url}/{photo.id}"
+        )
+
+        self.assertEqual(response.status_code, 204)
+        self.assertFalse(ReviewPhoto.objects.filter(id=photo.id).exists())
+        self.assertFalse(Path(image_path).exists())
+        self.assertFalse(Path(thumbnail_path).exists())
+
+    def test_other_user_cannot_delete_photo(self):
+        photo = self.make_stored_photo()
+        self.client.force_authenticate(user=self.other_user)
+
+        response = self.client.delete(
+            f"{self.url}/{photo.id}"
+        )
+
+        self.assertEqual(response.status_code, 404)
+        self.assertTrue(ReviewPhoto.objects.filter(id=photo.id).exists())
+
+    def test_patch_remove_photo_ids_deletes_files(self):
+        photo = self.make_stored_photo()
+        image_path = Path(photo.image.path)
+        thumbnail_path = Path(photo.thumbnail.path)
+        self.client.force_authenticate(user=self.user)
+
+        response = self.client.patch(
+            f"/api/v1/reviews/{self.review.id}",
+            {"remove_photo_ids": [photo.id]},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 200, response.data)
+        self.assertFalse(ReviewPhoto.objects.filter(id=photo.id).exists())
+        self.assertFalse(Path(image_path).exists())
+        self.assertFalse(Path(thumbnail_path).exists())
+
+    def test_deleting_review_deletes_photo_files(self):
+        photo = self.make_stored_photo()
+        image_path = Path(photo.image.path)
+        thumbnail_path = Path(photo.thumbnail.path)
+        self.client.force_authenticate(user=self.user)
+
+        response = self.client.delete(
+            f"/api/v1/reviews/{self.review.id}"
+        )
+
+        self.assertEqual(response.status_code, 204)
+        self.assertFalse(Path(image_path).exists())
+        self.assertFalse(Path(thumbnail_path).exists())
+
+
 class ReviewModerationAndReportAPITests(TestCase):
     @classmethod
     def setUpTestData(cls):
@@ -513,13 +667,13 @@ class ReviewModerationAndReportAPITests(TestCase):
         )
 
     def test_guest_cannot_access_moderation_queue(self):
-        response = self.client.get("/api/v1/moderation/reviews/")
+        response = self.client.get("/api/v1/admin/reviews/")
         self.assertEqual(response.status_code, 401)
 
     def test_regular_user_cannot_access_moderation_queue(self):
         self.client.force_authenticate(user=self.regular_user)
 
-        response = self.client.get("/api/v1/moderation/reviews/")
+        response = self.client.get("/api/v1/admin/reviews/")
 
         self.assertEqual(response.status_code, 403)
 
@@ -532,7 +686,7 @@ class ReviewModerationAndReportAPITests(TestCase):
 
         self.client.force_authenticate(user=self.moderator)
 
-        response = self.client.get("/api/v1/moderation/reviews/")
+        response = self.client.get("/api/v1/admin/reviews/")
 
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.data["count"], 1)
@@ -546,9 +700,7 @@ class ReviewModerationAndReportAPITests(TestCase):
         self.client.force_authenticate(user=self.regular_user)
 
         response = self.client.post(
-            f"/api/v1/moderation/reviews/{review.id}/",
-            {"action": "approve"},
-            format="json",
+            f"/api/v1/admin/reviews/{review.id}/approve"
         )
 
         self.assertEqual(response.status_code, 403)
@@ -561,9 +713,7 @@ class ReviewModerationAndReportAPITests(TestCase):
         self.client.force_authenticate(user=self.moderator)
 
         response = self.client.post(
-            f"/api/v1/moderation/reviews/{review.id}/",
-            {"action": "reject"},
-            format="json",
+            f"/api/v1/admin/reviews/{review.id}/reject"
         )
 
         self.assertEqual(response.status_code, 400)
@@ -576,13 +726,11 @@ class ReviewModerationAndReportAPITests(TestCase):
         self.client.force_authenticate(user=self.moderator)
 
         first_response = self.client.post(
-            f"/api/v1/moderation/reviews/{review.id}/",
-            {"action": "approve"},
-            format="json",
+            f"/api/v1/admin/reviews/{review.id}/approve"
         )
         second_response = self.client.post(
-            f"/api/v1/moderation/reviews/{review.id}/",
-            {"action": "reject", "reason": "Сабаб"},
+            f"/api/v1/admin/reviews/{review.id}/reject",
+            {"reason": "Сабаб"},
             format="json",
         )
 
@@ -591,6 +739,93 @@ class ReviewModerationAndReportAPITests(TestCase):
 
         review.refresh_from_db()
         self.assertEqual(review.status, Review.Status.APPROVED)
+
+    def test_admin_review_queue_alias_accepts_status_filter(self):
+        pending_review = self.create_review()
+        approved_review = self.create_review(
+            Review.Status.APPROVED,
+            user=self.regular_user,
+        )
+        self.client.force_authenticate(user=self.moderator)
+
+        response = self.client.get(
+            "/api/v1/admin/reviews?status=pending"
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data["total"], 1)
+        self.assertEqual(response.data["items"][0]["id"], pending_review.id)
+
+        approved_only = self.client.get(
+            "/api/v1/admin/reviews?status=approved"
+        )
+        self.assertEqual(approved_only.status_code, 200)
+        self.assertEqual(approved_only.data["total"], 1)
+        self.assertEqual(
+            approved_only.data["items"][0]["id"],
+            approved_review.id,
+        )
+
+        published_only = self.client.get(
+            "/api/v1/admin/reviews?status=published"
+        )
+        self.assertEqual(published_only.status_code, 200)
+        self.assertEqual(published_only.data["total"], 1)
+        self.assertEqual(
+            published_only.data["items"][0]["id"],
+            approved_review.id,
+        )
+
+    def test_admin_can_approve_review_via_tz_alias(self):
+        review = self.create_review()
+        self.client.force_authenticate(user=self.moderator)
+
+        response = self.client.post(
+            f"/api/v1/admin/reviews/{review.id}/approve"
+        )
+
+        self.assertEqual(response.status_code, 200, response.data)
+        review.refresh_from_db()
+        self.assertEqual(review.status, Review.Status.APPROVED)
+
+    def test_admin_can_reject_review_via_tz_alias(self):
+        review = self.create_review()
+        self.client.force_authenticate(user=self.moderator)
+
+        response = self.client.post(
+            f"/api/v1/admin/reviews/{review.id}/reject",
+            {"reason": "Нодуруст"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 200, response.data)
+        review.refresh_from_db()
+        self.assertEqual(review.status, Review.Status.REJECTED)
+        self.assertEqual(review.moderation_note, "Нодуруст")
+
+    def test_moderation_reports_support_page_limit_pagination(self):
+        review = self.create_review(Review.Status.APPROVED)
+        ReviewReport.objects.create(
+            user=self.regular_user,
+            review=review,
+            reason="Первая жалоба",
+        )
+        ReviewReport.objects.create(
+            user=self.moderator,
+            review=review,
+            reason="Вторая жалоба",
+        )
+        self.client.force_authenticate(user=self.moderator)
+
+        response = self.client.get(
+            "/api/v1/admin/reports?page=1&limit=1"
+        )
+
+        self.assertEqual(response.status_code, 200, response.data)
+        self.assertEqual(response.data["total"], 2)
+        self.assertEqual(response.data["page"], 1)
+        self.assertEqual(response.data["limit"], 1)
+        self.assertEqual(len(response.data["items"]), 1)
 
     def test_regular_user_cannot_list_reports(self):
         self.client.force_authenticate(user=self.regular_user)
@@ -689,3 +924,97 @@ class ReviewModerationAndReportAPITests(TestCase):
         )
 
         self.assertEqual(response.status_code, 404)
+
+
+class ReviewCreateWithPhotosTests(TestCase):
+    @classmethod
+    def setUpTestData(cls):
+        User = get_user_model()
+
+        cls.user = User.objects.create_user(
+            username="create_photos_user",
+            phone="+992900000031",
+            name="Create Photos User",
+        )
+
+        cls.category = Category.objects.create(
+            name={"ru": "Кафе"},
+            slug="create-photos-category",
+        )
+
+        cls.place = Place.objects.create(
+            category=cls.category,
+            name={"ru": "Кафе с фото"},
+            slug="create-photos-place",
+            address={"ru": "Душанбе"},
+            status=Place.Status.PUBLISHED,
+        )
+
+    def setUp(self):
+        self.client = APIClient()
+
+    def make_image(self, name="photo.jpg"):
+        buffer = BytesIO()
+
+        image = Image.new("RGB", (100, 80), color="blue")
+        image.save(buffer, format="JPEG")
+
+        return SimpleUploadedFile(
+            name,
+            buffer.getvalue(),
+            content_type="image/jpeg",
+        )
+
+    def test_review_can_be_created_with_photos(self):
+        self.client.force_authenticate(user=self.user)
+
+        response = self.client.post(
+            f"/api/v1/places/{self.place.slug}/reviews/",
+            {
+                "rating": 5,
+                "text": (
+                    "Ин ҷой хеле хуб аст, хизматрасонӣ босифат "
+                    "мебошад ва кормандон хушмуомила ҳастанд."
+                ),
+                "photos": [
+                    self.make_image("one.jpg"),
+                    self.make_image("two.jpg"),
+                ],
+            },
+            format="multipart",
+        )
+
+        self.assertEqual(response.status_code, 201, response.data)
+
+        review = Review.objects.get(place=self.place, user=self.user)
+
+        self.assertEqual(review.photos.count(), 2)
+        self.assertEqual(len(response.data["review"]["photos"]), 2)
+
+        for photo in review.photos.all():
+            with Image.open(photo.image) as saved_image:
+                self.assertEqual(saved_image.format, "WEBP")
+
+    def test_review_photos_are_limited_to_five(self):
+        self.client.force_authenticate(user=self.user)
+
+        response = self.client.post(
+            f"/api/v1/places/{self.place.slug}/reviews/",
+            {
+                "rating": 5,
+                "text": (
+                    "Ин ҷой хеле хуб аст, хизматрасонӣ босифат "
+                    "мебошад ва кормандон хушмуомила ҳастанд."
+                ),
+                "photos": [
+                    self.make_image(f"photo-{index}.jpg")
+                    for index in range(6)
+                ],
+            },
+            format="multipart",
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertFalse(
+            Review.objects.filter(place=self.place, user=self.user).exists()
+        )

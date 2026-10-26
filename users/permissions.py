@@ -17,7 +17,7 @@ class IsActiveUser(BasePermission):
 
 
 class IsPlacewiseAdmin(BasePermission):
-    """Танҳо админи Placewise."""
+    """Модератор ё админи Placewise."""
 
     def has_permission(self, request, view):
         user = request.user
@@ -27,7 +27,24 @@ class IsPlacewiseAdmin(BasePermission):
             and user.is_authenticated
             and user.is_active
             and not getattr(user, "is_blocked", False)
-            and user.is_staff
+            and (
+                user.is_superuser
+                or getattr(user, "role", "") in {"moderator", "admin"}
+            )
+        )
+
+
+class IsAdminOrSuperuser(BasePermission):
+    """Танҳо админи Placewise ё superuser."""
+
+    def has_permission(self, request, view):
+        user = request.user
+
+        return (
+            user
+            and user.is_authenticated
+            and user.is_active
+            and not getattr(user, "is_blocked", False)
             and (
                 user.is_superuser
                 or getattr(user, "role", "") == "admin"
@@ -46,7 +63,6 @@ class IsModeratorOrAdmin(BasePermission):
             and user.is_authenticated
             and user.is_active
             and not getattr(user, "is_blocked", False)
-            and user.is_staff
             and (
                 user.is_superuser
                 or getattr(user, "role", "") in {
@@ -74,6 +90,5 @@ class IsOwnerOrAdmin(BasePermission):
                     "owner",
                     "admin",
                 }
-                and user.is_staff
             )
         )

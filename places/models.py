@@ -69,6 +69,7 @@ class Place(models.Model):
         DRAFT = "draft", "Черновик"
         PUBLISHED = "published", "Опубликовано"
         HIDDEN = "hidden", "Скрыто"
+        CLOSED = "closed", "Закрыто"
 
     category = models.ForeignKey(
         Category,
@@ -170,10 +171,27 @@ class Place(models.Model):
 
 
 class PlacePhoto(models.Model):
+    class Source(models.TextChoices):
+        GIS_2GIS = "2gis", "2GIS"
+        USER = "user", "Пользователь"
+        OWNER = "owner", "Владелец"
+
     place = models.ForeignKey(
         Place,
         on_delete=models.CASCADE,
         related_name="photos",
+    )
+    author = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="place_photos",
+    )
+    source = models.CharField(
+        max_length=20,
+        choices=Source.choices,
+        blank=True,
     )
     image = models.ImageField(upload_to="places/%Y/%m/")
     thumbnail = models.ImageField(
@@ -181,6 +199,7 @@ class PlacePhoto(models.Model):
         blank=True,
     )
     alt = models.JSONField(default=dict, blank=True)
+    credit = models.CharField(max_length=255, blank=True)
     sort_order = models.PositiveIntegerField(default=0)
     is_cover = models.BooleanField(default=False)
     created_at = models.DateTimeField(auto_now_add=True)

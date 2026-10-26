@@ -2,7 +2,9 @@ from rest_framework.pagination import PageNumberPagination
 from rest_framework import serializers
 from rest_framework_gis.fields import GeometryField
 from drf_spectacular.utils import extend_schema_field
+from core.hours import format_hours_text, is_open_now, normalize_hours
 from core.image_processing import process_uploaded_image_variants
+from users.phone_utils import normalize_phone
 
 from .models import Category, Brand, Place, PlacePhoto, Favorite, Claim
 
@@ -65,6 +67,10 @@ class CategorySerializer(
 ):
     name = serializers.SerializerMethodField()
     place_count = serializers.IntegerField(read_only=True)
+    sort = serializers.IntegerField(
+        source="sort_order",
+        read_only=True,
+    )
 
     class Meta:
         model = Category
@@ -76,6 +82,8 @@ class CategorySerializer(
             "icon",
             "image",
             "place_count",
+            "sort",
+            "sort_order",
         ]
 
     @extend_schema_field(serializers.CharField())
@@ -88,14 +96,18 @@ class BrandSerializer(
     serializers.ModelSerializer,
 ):
     name = serializers.SerializerMethodField()
+    branches = serializers.IntegerField(
+        source="branches_count",
+        read_only=True,
+    )
 
-    
     class Meta:
         model = Brand
         fields = [
             "id",
             "name",
             "slug",
+            "branches",
             "branches_count",
             "logo",
             "website",
@@ -109,17 +121,41 @@ class BrandSerializer(
 
 
 class PlacePhotoSerializer(serializers.ModelSerializer):
+    url = serializers.SerializerMethodField()
+    sort = serializers.IntegerField(source="sort_order", read_only=True)
+
     class Meta:
         model = PlacePhoto
         fields = [
             "id",
+            "url",
             "image",
             "thumbnail",
             "alt",
+            "author_id",
+            "source",
+            "credit",
+            "sort",
             "sort_order",
             "is_cover",
         ]
-        read_only_fields = ["id", "thumbnail"]
+        read_only_fields = ["id", "url", "thumbnail", "author_id", "sort"]
+
+    @extend_schema_field(serializers.URLField(allow_blank=True))
+    def get_url(self, obj):
+        if not obj.image:
+            return ""
+
+        try:
+            url = obj.image.url
+        except ValueError:
+            return ""
+
+        request = self.context.get("request")
+        if request is not None:
+            return request.build_absolute_uri(url)
+
+        return url
 
     def create(self, validated_data):
         uploaded_image = validated_data.get("image")
@@ -159,6 +195,41 @@ class PlacePhotoSerializer(serializers.ModelSerializer):
 
         return instance
 
+def map_place_status(status_value):
+    if status_value == Place.Status.PUBLISHED:
+        return "active"
+    if status_value == Place.Status.CLOSED:
+        return "closed"
+    return "hidden"
+
+
+class PlaceStatusField(serializers.ChoiceField):
+    def __init__(self, **kwargs):
+        kwargs.setdefault(
+            "choices",
+            ["active", "hidden", "closed", "draft", "published"],
+        )
+        super().__init__(**kwargs)
+
+    def to_representation(self, value):
+        return map_place_status(value)
+
+    def to_internal_value(self, data):
+        mapping = {
+            "active": Place.Status.PUBLISHED,
+            "published": Place.Status.PUBLISHED,
+            "hidden": Place.Status.HIDDEN,
+            "closed": Place.Status.CLOSED,
+            "draft": Place.Status.DRAFT,
+        }
+        value = mapping.get(data)
+
+        if value is None:
+            self.fail("invalid_choice", input=data)
+
+        return value
+
+
 class PlaceListSerializer(
     TranslatedSerializerMixin,
     serializers.ModelSerializer,
@@ -169,6 +240,24 @@ class PlaceListSerializer(
     name = serializers.SerializerMethodField()
     subcategory = serializers.SerializerMethodField()
     address = serializers.SerializerMethodField()
+    price = serializers.IntegerField(
+        source="price_level",
+        read_only=True,
+    )
+    lat = serializers.SerializerMethodField()
+    lon = serializers.SerializerMethodField()
+    rating = serializers.DecimalField(
+        max_digits=3,
+        decimal_places=2,
+        coerce_to_string=False,
+        read_only=True,
+    )
+    status = PlaceStatusField(read_only=True)
+    status_tz = serializers.SerializerMethodField()
+    status_internal = serializers.CharField(
+        source="status",
+        read_only=True,
+    )
     location = GeometryField(read_only=True)
 
     class Meta:
@@ -182,11 +271,16 @@ class PlaceListSerializer(
             "subcategory",
             "address",
             "district",
+            "lat",
+            "lon",
             "location",
             "rating",
             "reviews_count",
+            "price",
             "price_level",
             "status",
+            "status_tz",
+            "status_internal",
         ]
 
     @extend_schema_field(serializers.CharField())
@@ -201,10 +295,35 @@ class PlaceListSerializer(
     def get_address(self, obj):
         return self.translated(obj.address)
 
+    @extend_schema_field(serializers.FloatField(allow_null=True))
+    def get_lat(self, obj):
+        return obj.location.y if obj.location else None
+
+    @extend_schema_field(serializers.FloatField(allow_null=True))
+    def get_lon(self, obj):
+        return obj.location.x if obj.location else None
+
+    @extend_schema_field(serializers.ChoiceField(
+        choices=["active", "hidden", "closed", "draft", "published"],
+    ))
+    def get_status_tz(self, obj):
+        return map_place_status(obj.status)
+
 
 class PlaceDetailSerializer(PlaceListSerializer):
     about = serializers.SerializerMethodField()
+    ext_rating = serializers.DecimalField(
+        max_digits=3,
+        decimal_places=2,
+        coerce_to_string=False,
+        read_only=True,
+        allow_null=True,
+    )
     opening_hours = serializers.SerializerMethodField()
+    hours = serializers.SerializerMethodField()
+    hours_text = serializers.SerializerMethodField()
+    open_now = serializers.SerializerMethodField()
+    is_favorite = serializers.SerializerMethodField()
     photos = PlacePhotoSerializer(many=True, read_only=True)
 
     class Meta(PlaceListSerializer.Meta):
@@ -213,6 +332,10 @@ class PlaceDetailSerializer(PlaceListSerializer):
             "phones",
             "website",
             "opening_hours",
+            "hours",
+            "hours_text",
+            "open_now",
+            "is_favorite",
             "ext_rating",
             "ext_reviews",
             "photos",
@@ -228,6 +351,74 @@ class PlaceDetailSerializer(PlaceListSerializer):
     def get_opening_hours(self, obj):
         return self.translated(obj.opening_hours)
 
+    @extend_schema_field(serializers.JSONField(allow_null=True))
+    def get_hours(self, obj):
+        value = getattr(obj, "opening_hours", None)
+        normalized = normalize_hours(value)
+
+        if normalized is not None:
+            return normalized
+
+        if isinstance(value, dict):
+            return value.get("raw")
+
+        if isinstance(value, str):
+            return value
+
+        return None
+
+    @extend_schema_field(serializers.CharField(allow_blank=True))
+    def get_hours_text(self, obj):
+        language = get_language(self.context)
+        return format_hours_text(getattr(obj, "opening_hours", None), language)
+
+    @extend_schema_field(serializers.BooleanField(allow_null=True))
+    def get_open_now(self, obj):
+        return is_open_now(getattr(obj, "opening_hours", None))
+
+    @extend_schema_field(serializers.BooleanField())
+    def get_is_favorite(self, obj):
+        if self.context.get("skip_favorite"):
+            return False
+
+        request = self.context.get("request")
+        user = getattr(request, "user", None)
+
+        if user is None or not user.is_authenticated:
+            return False
+
+        return Favorite.objects.filter(user=user, place=obj).exists()
+
+
+class PlaceMapPointSerializer(
+    TranslatedSerializerMixin,
+    serializers.ModelSerializer,
+):
+    name = serializers.SerializerMethodField()
+    lat = serializers.SerializerMethodField()
+    lon = serializers.SerializerMethodField()
+    rating = serializers.DecimalField(
+        max_digits=3,
+        decimal_places=2,
+        coerce_to_string=False,
+        read_only=True,
+    )
+
+    class Meta:
+        model = Place
+        fields = ["slug", "name", "lat", "lon", "rating"]
+
+    @extend_schema_field(serializers.CharField())
+    def get_name(self, obj):
+        return self.translated(obj.name)
+
+    @extend_schema_field(serializers.FloatField(allow_null=True))
+    def get_lat(self, obj):
+        return obj.location.y if obj.location else None
+
+    @extend_schema_field(serializers.FloatField(allow_null=True))
+    def get_lon(self, obj):
+        return obj.location.x if obj.location else None
 
 
 class FavoriteSerializer(serializers.ModelSerializer):
@@ -259,32 +450,100 @@ class PlacePaginationSerializer(serializers.Serializer):
     next = serializers.URLField(allow_null=True)
     previous = serializers.URLField(allow_null=True)
     results = PlaceListSerializer(many=True)
+    items = PlaceListSerializer(many=True)
+    total = serializers.IntegerField()
+    page = serializers.IntegerField()
+    limit = serializers.IntegerField()
 
 
 
 class OwnerPlaceUpdateSerializer(serializers.ModelSerializer):
+    photos = serializers.ListField(
+        child=serializers.FileField(),
+        required=False,
+        write_only=True,
+    )
+    remove_photo_ids = serializers.ListField(
+        child=serializers.IntegerField(),
+        required=False,
+        write_only=True,
+    )
+    hours = serializers.JSONField(
+        required=False,
+        write_only=True,
+    )
+    phone = serializers.CharField(
+        required=False,
+        allow_blank=False,
+        write_only=True,
+    )
+
     class Meta:
         model = Place
         fields = [
-            "name",
             "about",
-            "subcategory",
-            "address",
-            "district",
             "phones",
+            "phone",
             "website",
             "opening_hours",
-            "price_level",
+            "hours",
+            "photos",
+            "remove_photo_ids",
         ]
+    def to_internal_value(self, data):
+        if hasattr(data, "copy"):
+            data = data.copy()
 
-    def validate_price_level(self, value):
-        if value is not None and value not in (1, 2, 3, 4):
+        for field_name in (
+            "about",
+            "phones",
+            "opening_hours",
+            "hours",
+            "phone",
+            "website",
+            "photos",
+            "remove_photo_ids",
+        ):
+            if field_name in data and data[field_name] == "":
+                data.pop(field_name)
+
+        return super().to_internal_value(data)
+
+    def validate_about(self, value):
+        if isinstance(value, str):
+            value = {"ru": value}
+
+        if not isinstance(value, dict):
             raise serializers.ValidationError(
-                "price_level бояд аз 1 то 4 бошад ё null бошад."
+                "about бояд object бо забонҳо ё матн бошад."
             )
-        return value
+
+        cleaned = {}
+        for lang in ("ru", "tg", "en"):
+            text = value.get(lang)
+            if text in (None, ""):
+                continue
+            if not isinstance(text, str):
+                raise serializers.ValidationError(
+                    f"about.{lang} бояд матн бошад."
+                )
+            cleaned[lang] = text.strip()
+
+        if not cleaned:
+            raise serializers.ValidationError(
+                "about наметавонад холӣ бошад."
+            )
+
+        return cleaned
 
     def validate_phones(self, value):
+        if isinstance(value, str):
+            value = [
+                item
+                for item in value.replace(";", ",").split(",")
+                if item.strip()
+            ]
+
         if not isinstance(value, list):
             raise serializers.ValidationError(
                 "phones бояд рӯйхати рақамҳои телефон бошад."
@@ -295,21 +554,65 @@ class OwnerPlaceUpdateSerializer(serializers.ModelSerializer):
                 "На бештар аз 20 рақами телефон иҷозат аст."
             )
 
-        return value
+        normalized = []
+        for item in value:
+            if not isinstance(item, str):
+                raise serializers.ValidationError(
+                    "Ҳар як рақами телефон бояд матн бошад."
+                )
+            phone = normalize_phone(item)
+            if phone is None:
+                raise serializers.ValidationError(
+                    f"Рақами телефон нодуруст аст: {item}"
+                )
+            if phone not in normalized:
+                normalized.append(phone)
+
+        return normalized
+
+    def validate_phone(self, value):
+        phone = normalize_phone(value)
+        if phone is None:
+            raise serializers.ValidationError(
+                "Рақами телефон нодуруст аст."
+            )
+        return phone
+
+    def validate_opening_hours(self, value):
+        normalized = normalize_hours(value)
+        if normalized is None:
+            raise serializers.ValidationError(
+                "opening_hours бояд вақти кушоишро дар формати дуруст дошта бошад."
+            )
+        return normalized
+
+    def validate_hours(self, value):
+        normalized = normalize_hours(value)
+        if normalized is None:
+            raise serializers.ValidationError(
+                "hours бояд вақти кушоишро дар формати дуруст дошта бошад."
+            )
+        return normalized
+
+    def validate(self, attrs):
+        if "hours" in attrs:
+            attrs["opening_hours"] = attrs.pop("hours")
+
+        if "phone" in attrs:
+            phone = attrs.pop("phone")
+            phones = list(attrs.get("phones", self.instance.phones or []))
+            if phone not in phones:
+                phones.append(phone)
+            attrs["phones"] = phones
+
+        return attrs
 
 
 
 class ClaimCreateSerializer(serializers.ModelSerializer):
     class Meta:
         model = Claim
-        fields = ["place", "document_url"]
-
-    def validate_place(self, value):
-        if value.status != Place.Status.PUBLISHED:
-            raise serializers.ValidationError(
-                "Барои ин ҷой дархост фиристодан мумкин нест."
-            )
-        return value
+        fields = ["document_url"]
 
 
 class ClaimSerializer(serializers.ModelSerializer):
@@ -398,6 +701,19 @@ class AdminCategorySerializer(serializers.ModelSerializer):
 
 class AdminPlaceSerializer(serializers.ModelSerializer):
     location = GeometryField(required=False, allow_null=True)
+    rating = serializers.DecimalField(
+        max_digits=3,
+        decimal_places=2,
+        coerce_to_string=False,
+        read_only=True,
+    )
+    status = PlaceStatusField(required=False)
+    status_tz = PlaceStatusField(source="status", required=False)
+    status_internal = serializers.CharField(
+        source="status",
+        read_only=True,
+    )
+
     class Meta:
         model = Place
         fields = [
@@ -416,6 +732,8 @@ class AdminPlaceSerializer(serializers.ModelSerializer):
             "opening_hours",
             "price_level",
             "status",
+            "status_tz",
+            "status_internal",
             "source",
             "source_id",
             "rating",

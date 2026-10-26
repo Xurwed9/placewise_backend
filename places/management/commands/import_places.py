@@ -11,7 +11,12 @@ from django.core.validators import URLValidator
 from django.db import IntegrityError, transaction
 from django.utils.text import slugify
 
+from core.hours import parse_hours_text
 from places.models import Brand, Category, Place
+from places.translations import (
+    resolve_category_key_from_filename,
+    translate_subcategory,
+)
 
 
 # Формати нав аз ТЗ.
@@ -62,9 +67,14 @@ def normalize_phone(value):
 
     if digits.startswith("992") and len(digits) == 12:
         national = digits[3:]
+    elif len(digits) == 10 and digits.startswith("8"):
+        national = digits[1:]
     elif len(digits) == 9 and digits.startswith("9"):
         national = digits
     else:
+        return original
+
+    if len(national) != 9:
         return original
 
     return (
@@ -105,36 +115,20 @@ def extract_2gis_id(source_url):
 
 
 def parse_hours(value):
-    """Parse simple opening hours; preserve ambiguous formats for review."""
+    """Parse opening hours and preserve ambiguous source text for review."""
     raw = value.strip()
     if not raw:
         return {}, []
 
-    # Танҳо формати оддии 09:00-22:00 ё 09:00–22:00.
-    match = re.fullmatch(
-        r"\s*(\d{1,2}):(\d{2})\s*[-–]\s*(\d{1,2}):(\d{2})\s*",
-        raw,
-    )
+    hours, warnings = parse_hours_text(raw)
 
-    if match:
-        start_h, start_m, end_h, end_m = map(int, match.groups())
-        if (
-            start_h <= 23
-            and end_h <= 23
-            and start_m <= 59
-            and end_m <= 59
-        ):
-            return {
-                "raw": raw,
-                "open": f"{start_h:02d}:{start_m:02d}",
-                "close": f"{end_h:02d}:{end_m:02d}",
-                "needs_manual_review": False,
-            }, []
+    if hours is None:
+        return {
+            "raw": raw,
+            "needs_manual_review": True,
+        }, warnings
 
-    return {
-        "raw": raw,
-        "needs_manual_review": True,
-    }, ["Opening hours need manual review"]
+    return hours, warnings
 
 
 def parse_row(row, legacy=False):
@@ -190,12 +184,17 @@ def parse_row(row, legacy=False):
     ]
 
     hours, hour_warnings = parse_hours(row.get("opening_hours", ""))
+    subcategory = translate_subcategory(row.get("subcategory", ""))
+
+    warnings = list(hour_warnings)
+    if subcategory and not subcategory.get("tg"):
+        warnings.append("Subcategory translation needs manual review")
 
     return {
         "source_id": source_id,
         "source_url": source_url,
         "name": name,
-        "subcategory": row.get("subcategory", "").strip(),
+        "subcategory": subcategory,
         "address": address,
         "phones": phones,
         "opening_hours": hours,
@@ -210,7 +209,7 @@ def parse_row(row, legacy=False):
         "rating": rating,
         "reviews": reviews,
         "branches": branches,
-        "warnings": hour_warnings,
+        "warnings": warnings,
     }
 
 
@@ -269,6 +268,16 @@ class Command(BaseCommand):
         )
         parser.add_argument("--source", default="2gis")
         parser.add_argument(
+            "--status",
+            choices=[
+                Place.Status.DRAFT,
+                Place.Status.PUBLISHED,
+                Place.Status.HIDDEN,
+            ],
+            default=Place.Status.PUBLISHED,
+            help="Status for newly imported places (default: published)",
+        )
+        parser.add_argument(
             "--dry-run",
             action="store_true",
             help="Validate and report without saving changes",
@@ -283,10 +292,11 @@ class Command(BaseCommand):
     def handle(self, *args, **options):
         csv_path = Path(options["csv_file"]).resolve()
         source = options["source"].strip()
+        status = options["status"]
         category_key = (
             options["category"].strip()
             if options["category"]
-            else slugify(csv_path.stem)
+            else resolve_category_key_from_filename(csv_path.name)
         )
         dry_run = options["dry_run"]
 
@@ -302,6 +312,16 @@ class Command(BaseCommand):
             raise CommandError("--source cannot be empty")
         if not csv_path.is_file():
             raise CommandError(f"CSV file not found: {csv_path}")
+
+        if not category_key:
+            available = ", ".join(
+                Category.objects.order_by("key").values_list("key", flat=True)
+            )
+            raise CommandError(
+                f"Could not determine category from filename '{csv_path.name}'. "
+                "Use --category with one of the available keys: "
+                f"{available or 'run seed_categories first'}"
+            )
 
         category = (
             Category.objects.filter(key=category_key).first()
@@ -362,6 +382,7 @@ class Command(BaseCommand):
 
                 self.stdout.write(f"Category: {category.key}")
                 self.stdout.write(f"Source: {source}")
+                self.stdout.write(f"Status: {status}")
                 self.stdout.write(f"Format: {'legacy' if legacy else '2GIS'}")
                 self.stdout.write(f"Mode: {'DRY RUN' if dry_run else 'IMPORT'}")
 
@@ -444,17 +465,32 @@ class Command(BaseCommand):
                                     slug=slug,
                                     source=source,
                                     source_id=source_id,
-                                    status=Place.Status.DRAFT,
+                                    status=status,
                                 )
 
                             place.category = category
-                            place.name = {"ru": data["name"]}
-                            place.subcategory = (
-                                {"ru": data["subcategory"]}
-                                if data["subcategory"]
+                            existing_name = (
+                                place.name
+                                if isinstance(place.name, dict)
                                 else {}
                             )
-                            place.address = {"ru": data["address"]}
+                            place.name = {
+                                **existing_name,
+                                "ru": data["name"],
+                            }
+
+                            if data["subcategory"]:
+                                place.subcategory = data["subcategory"]
+
+                            existing_address = (
+                                place.address
+                                if isinstance(place.address, dict)
+                                else {}
+                            )
+                            place.address = {
+                                **existing_address,
+                                "ru": data["address"],
+                            }
                             place.phones = data["phones"]
                             place.location = Point(
                                 float(data["lon"]),
@@ -467,7 +503,7 @@ class Command(BaseCommand):
                             if data["opening_hours"]:
                                 place.opening_hours = data["opening_hours"]
 
-                            if data["external_url"] and not data["is_instagram"]:
+                            if data["external_url"]:
                                 place.website = data["external_url"]
 
                             if data["branches"] >= 2:
@@ -475,10 +511,6 @@ class Command(BaseCommand):
                                     data["name"],
                                     data["branches"],
                                     data["external_url"],
-                                )
-                            elif data["is_instagram"]:
-                                warnings.append(
-                                    "Instagram URL not assigned: no multi-branch brand identified"
                                 )
 
                             place.save()

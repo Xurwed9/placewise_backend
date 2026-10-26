@@ -14,6 +14,7 @@ from rest_framework.parsers import FormParser, MultiPartParser
 from rest_framework.response import Response
 from drf_spectacular.utils import extend_schema
 
+from places.translations import resolve_category_key_from_filename
 from users.permissions import IsPlacewiseAdmin
 
 
@@ -22,8 +23,8 @@ MAX_CSV_SIZE = 10 * 1024 * 1024  # 10 MB
 
 @extend_schema(
     operation_id="admin_import_2gis",
-    summary="Import places from 2GIS CSV",
-    description="Upload a CSV file and import places. Admin access required.",
+    summary="Импорти ҷойҳо аз 2GIS (CSV)",
+    description="Бор кардани файли CSV ва импорти ҷойҳо. Дастрасӣ танҳо барои маъмур.",
     request={
         "multipart/form-data": {
             "type": "object",
@@ -170,11 +171,14 @@ def admin_import_2gis(request):
             )
             has_errors = command_error is not None or counts["errors"] > 0
 
+            resolved_category = category or resolve_category_key_from_filename(
+                filename
+            )
             response_data = {
                 "success": not has_errors,
                 "partial_success": has_successful_rows and has_errors,
                 "dry_run": dry_run,
-                "category": category or Path(filename).stem,
+                "category": resolved_category or "",
                 "source": source,
                 "counts": counts,
                 "rows": report_rows[:100],

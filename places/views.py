@@ -6,12 +6,14 @@ from rest_framework.parsers import (
     JSONParser,
 )
 from django.db.models import Q, TextField, Count
+from django.contrib.postgres.search import TrigramSimilarity
 from django.db.models.functions import Cast
 from django.shortcuts import get_object_or_404
 
 from rest_framework import status
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.pagination import PageNumberPagination
+from core.pagination import StandardPagination
 from rest_framework.response import Response
 from django.contrib.gis.geos import Polygon
 from drf_spectacular.utils import extend_schema, OpenApiParameter, OpenApiTypes,extend_schema_view, OpenApiResponse,OpenApiRequest
@@ -27,28 +29,49 @@ from django.contrib.gis.db.models.functions import Distance
 from django.contrib.gis.geos import Point
 from django.contrib.gis.measure import D
 from django.db.models import ExpressionWrapper, FloatField
-from datetime import datetime, time
 from zoneinfo import ZoneInfo
 
 from .models import Category, Place,Favorite,Claim, PlacePhoto
 from .serializers import (
     CategorySerializer,
     PlaceListSerializer,
+    PlaceMapPointSerializer,
     PlaceDetailSerializer,
     FavoriteSerializer,
     PlacePaginationSerializer,
     OwnerPlaceUpdateSerializer, ClaimCreateSerializer,
     ClaimSerializer, AdminPlaceUpdateSerializer, AdminCategorySerializer,
-    AdminPlaceSerializer, PlacePhotoSerializer,
+    AdminPlaceSerializer, PlacePhotoSerializer, map_place_status,
 )
 from reviews.models import Review
 from reviews.serializers import ReviewSerializer
 from notifications.models import Notification
+from core.hours import is_open_now
 from core.image_processing import process_uploaded_image_variants
 
 import hashlib
 from django.core.cache import cache
 
+
+
+def _delete_place_photo_files(photo):
+    if photo.image:
+        photo.image.delete(save=False)
+
+    if photo.thumbnail:
+        photo.thumbnail.delete(save=False)
+
+
+def _is_favorite_for_slug(request, slug):
+    user = getattr(request, "user", None)
+
+    if user is None or not user.is_authenticated:
+        return False
+
+    return Favorite.objects.filter(
+        user=user,
+        place__slug=slug,
+    ).exists()
 
 
 def _public_api_cache_key(request, endpoint):
@@ -71,10 +94,8 @@ def _public_api_cache_key(request, endpoint):
     return f"public-api:{digest}"
 
 
-class PlacePagination(PageNumberPagination):
-    page_size = 20
-    page_size_query_param = "page_size"
-    max_page_size = 100
+class PlacePagination(StandardPagination):
+    pass
 
 
 
@@ -117,55 +138,6 @@ def category_list(request):
 
 
 
-def get_open_now(opening_hours):
-    """
-    Формати соатҳо:
-    {
-        "mon": {"open": "09:00", "close": "18:00"},
-        "tue": {"open": "09:00", "close": "18:00"},
-        ...
-    }
-
-    Агар соатҳо муайян нашуда бошанд, None бармегардонад.
-    """
-    if not isinstance(opening_hours, dict) or not opening_hours:
-        return None
-
-    now = datetime.now(ZoneInfo("Asia/Dushanbe"))
-
-    day_keys = [
-        "mon", "tue", "wed", "thu", "fri", "sat", "sun"
-    ]
-    today = day_keys[now.weekday()]
-    hours = opening_hours.get(today)
-
-    if not isinstance(hours, dict):
-        return None
-
-    if hours.get("closed") is True:
-        return False
-
-    opening = hours.get("open")
-    closing = hours.get("close")
-
-    if not opening or not closing:
-        return None
-
-    try:
-        open_time = time.fromisoformat(opening)
-        close_time = time.fromisoformat(closing)
-    except (ValueError, TypeError):
-        return None
-
-    current_time = now.time().replace(tzinfo=None)
-
-    if open_time <= close_time:
-        return open_time <= current_time < close_time
-
-    return current_time >= open_time or current_time < close_time
-
-
-
 @extend_schema(
     operation_id="place_list",
     responses=PlacePaginationSerializer,
@@ -192,6 +164,18 @@ def get_open_now(opening_hours):
             name="radius",
             type=float,
             location=OpenApiParameter.QUERY,
+            description="Радиуси ҷустуҷӯ бо метр; аз 100 то 100000",
+        ),
+        OpenApiParameter(
+            name="radius_m",
+            type=float,
+            location=OpenApiParameter.QUERY,
+            description="Радиуси ҷустуҷӯ бо метр; аз 100 то 100000",
+        ),
+        OpenApiParameter(
+            name="radius_km",
+            type=float,
+            location=OpenApiParameter.QUERY,
             description="Радиуси ҷустуҷӯ бо километр; аз 0.1 то 100",
         ),
         OpenApiParameter(
@@ -214,10 +198,22 @@ def get_open_now(opening_hours):
             description="Шумораи ҷойҳо дар як саҳифа, ҳадди аксар 100",
         ),
         OpenApiParameter(
+            name="limit",
+            type=int,
+            location=OpenApiParameter.QUERY,
+            description="Алиаси page_size, ҳадди аксар 100",
+        ),
+        OpenApiParameter(
             name="search",
             type=str,
             location=OpenApiParameter.QUERY,
             description="Ҷустуҷӯ аз рӯйи ном, суроға, slug ё ноҳия",
+        ),
+        OpenApiParameter(
+            name="q",
+            type=str,
+            location=OpenApiParameter.QUERY,
+            description="Алиаси search",
         ),
         OpenApiParameter(
             name="category",
@@ -238,10 +234,22 @@ def get_open_now(opening_hours):
             description="Рейтинги минималӣ аз 0 то 5",
         ),
         OpenApiParameter(
+            name="rating_min",
+            type=float,
+            location=OpenApiParameter.QUERY,
+            description="Алиаси min_rating",
+        ),
+        OpenApiParameter(
             name="price_level",
             type=int,
             location=OpenApiParameter.QUERY,
             description="Сатҳи нарх аз 1 то 4",
+        ),
+        OpenApiParameter(
+            name="price",
+            type=int,
+            location=OpenApiParameter.QUERY,
+            description="Алиаси price_level",
         ),
         OpenApiParameter(
             name="ordering",
@@ -259,6 +267,13 @@ def get_open_now(opening_hours):
                 "distance",
             ],
             description="Тартиби навъбандӣ",
+        ),
+        OpenApiParameter(
+            name="sort",
+            type=str,
+            location=OpenApiParameter.QUERY,
+            enum=["best", "rating", "reviews", "distance"],
+            description="Тартиби навъбандӣ аз рӯйи ТЗ",
         ),
     ],
 )
@@ -279,30 +294,69 @@ def place_list(request):
         .select_related("category", "brand")
     )
 
-    search = request.query_params.get("search", "").strip()
+    search = (
+        request.query_params.get("q")
+        or request.query_params.get("search", "")
+    ).strip()
 
     if search:
         places = places.annotate(
             name_text=Cast("name", output_field=TextField()),
             address_text=Cast("address", output_field=TextField()),
-        ).filter(
+            subcategory_text=Cast(
+                "subcategory",
+                output_field=TextField(),
+            ),
+        )
+
+        search_filter = (
             Q(name_text__icontains=search)
             | Q(address_text__icontains=search)
+            | Q(subcategory_text__icontains=search)
             | Q(slug__icontains=search)
             | Q(district__icontains=search)
         )
 
+        # pg_trgm improves matching for typos while keeping exact substring
+        # behaviour for short queries.
+        if len(search) >= 3:
+            places = places.annotate(
+                name_similarity=TrigramSimilarity("name_text", search),
+                address_similarity=TrigramSimilarity(
+                    "address_text",
+                    search,
+                ),
+                subcategory_similarity=TrigramSimilarity(
+                    "subcategory_text",
+                    search,
+                ),
+            )
+
+            search_filter |= (
+                Q(name_similarity__gt=0.2)
+                | Q(address_similarity__gt=0.2)
+                | Q(subcategory_similarity__gt=0.2)
+            )
+
+        places = places.filter(search_filter)
+
     category = request.query_params.get("category", "").strip()
 
     if category:
-        places = places.filter(category__slug=category)
+        places = places.filter(
+            Q(category__slug=category)
+            | Q(category__key=category)
+        )
 
     district = request.query_params.get("district", "").strip()
 
     if district:
         places = places.filter(district__icontains=district)
 
-    min_rating = request.query_params.get("min_rating")
+    min_rating = (
+        request.query_params.get("rating_min")
+        or request.query_params.get("min_rating")
+    )
 
     if min_rating not in (None, ""):
         try:
@@ -313,13 +367,16 @@ def place_list(request):
 
         except (ValueError, TypeError):
             return Response(
-                {"error": "min_rating бояд аз 0 то 5 бошад"},
+                {"error": "rating_min бояд аз 0 то 5 бошад"},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
         places = places.filter(rating__gte=rating_value)
 
-    price_level = request.query_params.get("price_level")
+    price_level = (
+        request.query_params.get("price")
+        or request.query_params.get("price_level")
+    )
 
     if price_level not in (None, ""):
         try:
@@ -332,7 +389,7 @@ def place_list(request):
             return Response(
                 {
                     "error": (
-                        "price_level бояд адади бутун "
+                        "price бояд адади бутун "
                         "аз 1 то 4 бошад"
                     )
                 },
@@ -343,7 +400,9 @@ def place_list(request):
 
     lat = request.query_params.get("lat")
     lon = request.query_params.get("lon")
-    radius = request.query_params.get("radius", "5")
+    radius_m = request.query_params.get("radius_m")
+    radius_km = request.query_params.get("radius_km")
+    radius = request.query_params.get("radius")
     open_now = request.query_params.get("open_now")
 
     location_point = None
@@ -358,7 +417,15 @@ def place_list(request):
         try:
             lat_value = float(lat)
             lon_value = float(lon)
-            radius_value = float(radius)
+
+            if radius_m not in (None, ""):
+                radius_km_value = float(radius_m) / 1000
+            elif radius_km not in (None, ""):
+                radius_km_value = float(radius_km)
+            elif radius not in (None, ""):
+                radius_km_value = float(radius) / 1000
+            else:
+                radius_km_value = 5
 
             if not -90 <= lat_value <= 90:
                 raise ValueError
@@ -366,7 +433,7 @@ def place_list(request):
             if not -180 <= lon_value <= 180:
                 raise ValueError
 
-            if not 0.1 <= radius_value <= 100:
+            if not 0.1 <= radius_km_value <= 100:
                 raise ValueError
 
         except (ValueError, TypeError):
@@ -374,7 +441,7 @@ def place_list(request):
                 {
                     "error": (
                         "lat, lon ё radius нодуруст аст. "
-                        "radius бояд аз 0.1 то 100 км бошад."
+                        "radius бояд аз 100 то 100000 метр бошад."
                     )
                 },
                 status=status.HTTP_400_BAD_REQUEST,
@@ -390,7 +457,7 @@ def place_list(request):
             location__isnull=False,
             location__distance_lte=(
                 location_point,
-                D(km=radius_value),
+                D(km=radius_km_value),
             ),
         )
 
@@ -401,60 +468,19 @@ def place_list(request):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        now = timezone.now().astimezone(
-            ZoneInfo("Asia/Dushanbe")
-        )
-
-        day_keys = [
-            "mon", "tue", "wed", "thu",
-            "fri", "sat", "sun",
-        ]
-        today = day_keys[now.weekday()]
-        current_time = now.strftime("%H:%M")
-
+        now = timezone.now().astimezone(ZoneInfo("Asia/Dushanbe"))
         matching_ids = []
 
-        for place in places.only("id", "opening_hours").iterator():
-            hours_data = place.opening_hours
+        for place in places.iterator():
+            is_open = is_open_now(place.opening_hours, now)
 
-            if not isinstance(hours_data, dict):
+            if is_open is None:
                 continue
-
-            today_hours = hours_data.get(today)
-
-            if not isinstance(today_hours, dict):
-                continue
-
-            if today_hours.get("closed") is True:
-                is_open = False
-            else:
-                opening = today_hours.get("open")
-                closing = today_hours.get("close")
-
-                if not opening or not closing:
-                    continue
-
-                try:
-                    from datetime import time
-
-                    start = time.fromisoformat(opening)
-                    end = time.fromisoformat(closing)
-                    current = time.fromisoformat(current_time)
-
-                    if start <= end:
-                        is_open = start <= current < end
-                    else:
-                        is_open = current >= start or current < end
-
-                except (ValueError, TypeError):
-                    continue
 
             if is_open == (open_now.lower() == "true"):
                 matching_ids.append(place.id)
 
         places = places.filter(id__in=matching_ids)
-
-    ordering = request.query_params.get("ordering", "-rating")
 
     allowed_ordering = {
         "rating",
@@ -467,6 +493,27 @@ def place_list(request):
         "-slug",
         "distance",
     }
+    sort = request.query_params.get("sort")
+
+    if sort not in (None, ""):
+        sort_map = {
+            "best": "-rating",
+            "rating": "-rating",
+            "reviews": "-reviews_count",
+            "distance": "distance",
+        }
+        ordering = sort_map.get(sort)
+
+        if ordering is None:
+            return Response(
+                {
+                    "error": "sort нодуруст аст",
+                    "allowed": sorted(sort_map),
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+    else:
+        ordering = request.query_params.get("ordering", "-rating")
 
     if ordering not in allowed_ordering:
         return Response(
@@ -481,7 +528,7 @@ def place_list(request):
             return Response(
                 {
                     "error": (
-                        "Барои ordering=distance "
+                        "Барои sort=distance "
                         "параметрҳои lat ва lon лозиманд"
                     )
                 },
@@ -492,8 +539,6 @@ def place_list(request):
         ).order_by("distance", "id")
     else:
         places = places.order_by(ordering, "id")
-
-    places = places.order_by(ordering, "id")
 
     paginator = PlacePagination()
     page = paginator.paginate_queryset(places, request)
@@ -542,7 +587,9 @@ def place_detail(request, slug):
     cached_data = cache.get(cache_key)
 
     if cached_data is not None:
-        return Response(cached_data)
+        data = dict(cached_data)
+        data["is_favorite"] = _is_favorite_for_slug(request, slug)
+        return Response(data)
     place = get_object_or_404(
         Place.objects
         .filter(status=Place.Status.PUBLISHED)
@@ -553,7 +600,10 @@ def place_detail(request, slug):
 
     serializer = PlaceDetailSerializer(
         place,
-        context={"request": request},
+        context={
+            "request": request,
+            "skip_favorite": True,
+        },
     )
 
     data = serializer.data
@@ -563,6 +613,9 @@ def place_detail(request, slug):
         data,
         timeout=30,
     )
+
+    data = dict(data)
+    data["is_favorite"] = _is_favorite_for_slug(request, slug)
 
     return Response(data)
 
@@ -596,7 +649,7 @@ def place_detail(request, slug):
             name="PlaceMapResponse",
             fields={
                 "count": serializers.IntegerField(),
-                "results": PlaceListSerializer(many=True),
+                "results": PlaceMapPointSerializer(many=True),
             },
         ),
         400: OpenApiTypes.OBJECT,
@@ -648,15 +701,20 @@ def place_map(request):
         .select_related("category", "brand")
     )
 
-    serializer = PlaceListSerializer(
-        places[:500],
+    serializer = PlaceMapPointSerializer(
+        places,
         many=True,
         context={"request": request},
     )
 
+    data = serializer.data
+    total = places.count()
+
     return Response({
-        "count": places.count(),
-        "results": serializer.data,
+        "count": total,
+        "total": total,
+        "results": data,
+        "items": data,
     })
 
 
@@ -702,8 +760,19 @@ def similar_places(request, slug):
         )
         .exclude(id=place.id)
         .select_related("category", "brand")
-        .order_by("-rating", "-reviews_count")[:6]
     )
+
+    if place.location is not None:
+        similar = (
+            similar
+            .filter(location__isnull=False)
+            .annotate(distance=Distance("location", place.location))
+            .order_by("distance", "-rating", "-reviews_count")
+        )
+    else:
+        similar = similar.order_by("-rating", "-reviews_count")
+
+    similar = similar[:6]
 
     serializer = PlaceListSerializer(
         similar,
@@ -719,13 +788,7 @@ def similar_places(request, slug):
 
 
 
-@extend_schema(
-    request=FavoriteSerializer,
-    responses={201: FavoriteSerializer, 200: FavoriteSerializer},
-)
-@api_view(["GET", "POST"])
-@permission_classes([IsAuthenticated])
-def favorite_list(request):
+def _favorite_list_impl(request):
     if request.method == "GET":
         favorites = (
             Favorite.objects
@@ -733,17 +796,60 @@ def favorite_list(request):
             .select_related("place")
         )
 
+        pagination_requested = any(
+            key in request.query_params
+            for key in ("page", "limit", "page_size")
+        )
+
+        serializer_context = {
+            "request": request,
+            "language": request.query_params.get("lang", "ru"),
+        }
+
+        if pagination_requested:
+            paginator = StandardPagination()
+            page = paginator.paginate_queryset(favorites, request)
+            serializer = FavoriteSerializer(
+                page,
+                many=True,
+                context=serializer_context,
+            )
+            return paginator.get_paginated_response(serializer.data)
+
         serializer = FavoriteSerializer(
             favorites,
             many=True,
-            context={
-                "request": request,
-                "language": request.query_params.get("lang", "ru"),
-            },
+            context=serializer_context,
         )
         return Response(serializer.data)
 
-    place_id = request.data.get("place")
+    if request.method == "DELETE":
+        place_id = (
+            request.data.get("place")
+            or request.data.get("place_id")
+            or request.query_params.get("place")
+            or request.query_params.get("place_id")
+        )
+
+        if not place_id:
+            return Response(
+                {"error": "place ё place_id лозим аст"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        favorite = get_object_or_404(
+            Favorite,
+            user=request.user,
+            place_id=place_id,
+        )
+        favorite.delete()
+
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+    place_id = (
+        request.data.get("place")
+        or request.data.get("place_id")
+    )
 
     if not place_id:
         return Response(
@@ -776,27 +882,40 @@ def favorite_list(request):
     )
 
 
-
 @extend_schema(
-    operation_id="favorite_delete",
+    methods=["GET"],
+    operation_id="me_favorites_list",
+    responses={200: FavoriteSerializer(many=True)},
+)
+@extend_schema(
+    methods=["POST"],
+    operation_id="me_favorites_create",
+    request=FavoriteSerializer,
+    responses={201: FavoriteSerializer, 200: FavoriteSerializer},
+)
+@extend_schema(
+    methods=["DELETE"],
+    operation_id="me_favorites_remove",
+    request=None,
+    parameters=[
+        OpenApiParameter(
+            name="place_id",
+            type=int,
+            location=OpenApiParameter.QUERY,
+            required=True,
+            description="ID-и ҷойе, ки аз Favorites нест карда мешавад",
+        ),
+    ],
     responses={
         204: None,
+        400: OpenApiTypes.OBJECT,
         404: OpenApiTypes.OBJECT,
     },
 )
-@api_view(["DELETE"])
+@api_view(["GET", "POST", "DELETE"])
 @permission_classes([IsAuthenticated])
-def favorite_delete(request, place_id):
-    favorite = get_object_or_404(
-        Favorite,
-        user=request.user,
-        place_id=place_id,
-    )
-
-    favorite.delete()
-
-    return Response(status=status.HTTP_204_NO_CONTENT)
-
+def me_favorite_list(request):
+    return _favorite_list_impl(request)
 
 
 @extend_schema(
@@ -951,7 +1070,7 @@ def search_suggest(request):
             | Q(district__icontains=query)
         )
         .select_related("category", "brand")
-        .order_by("-rating", "-reviews_count")[:8]
+        .order_by("-rating", "-reviews_count")[:4]
     )
 
     categories = (
@@ -965,7 +1084,7 @@ def search_suggest(request):
             | Q(slug__icontains=query)
             | Q(key__icontains=query)
         )
-        .order_by("sort_order", "id")[:8]
+        .order_by("sort_order", "id")[:4]
     )
 
     return Response({
@@ -990,7 +1109,13 @@ def search_suggest(request):
             name="OwnerPlacesResponse",
             fields={
                 "count": serializers.IntegerField(),
+                "next": serializers.URLField(allow_null=True),
+                "previous": serializers.URLField(allow_null=True),
                 "results": PlaceDetailSerializer(many=True),
+                "items": PlaceDetailSerializer(many=True),
+                "total": serializers.IntegerField(),
+                "page": serializers.IntegerField(),
+                "limit": serializers.IntegerField(),
             },
         ),
         403: inline_serializer(
@@ -1017,16 +1142,15 @@ def owner_places(request):
         .order_by("-updated_at")
     )
 
+    paginator = StandardPagination()
+    page = paginator.paginate_queryset(places, request)
     serializer = PlaceDetailSerializer(
-        places,
+        page,
         many=True,
         context={"request": request},
     )
 
-    return Response({
-        "count": places.count(),
-        "results": serializer.data,
-    })
+    return paginator.get_paginated_response(serializer.data)
 
 
 
@@ -1048,6 +1172,7 @@ def owner_places(request):
     },
 )
 @api_view(["PATCH"])
+@parser_classes([MultiPartParser, FormParser, JSONParser])
 @permission_classes([IsAuthenticated])
 def owner_place_update(request, place_id):
     """Таҳрири ҷойи худи соҳиб."""
@@ -1070,7 +1195,41 @@ def owner_place_update(request, place_id):
         partial=True,
     )
     serializer.is_valid(raise_exception=True)
-    serializer.save()
+
+    photo_files = serializer.validated_data.pop("photos", [])
+    remove_photo_ids = serializer.validated_data.pop(
+        "remove_photo_ids",
+        [],
+    )
+
+    try:
+        with transaction.atomic():
+            serializer.save()
+
+            if remove_photo_ids:
+                photos_to_delete = list(
+                    place.photos.filter(id__in=remove_photo_ids)
+                )
+                for photo in photos_to_delete:
+                    _delete_place_photo_files(photo)
+                place.photos.filter(id__in=remove_photo_ids).delete()
+
+            for uploaded_file in photo_files:
+                variants = process_uploaded_image_variants(
+                    uploaded_file
+                )
+                PlacePhoto.objects.create(
+                    place=place,
+                    author=request.user,
+                    source=PlacePhoto.Source.OWNER,
+                    image=variants["image"],
+                    thumbnail=variants["thumbnail"],
+                )
+    except ValueError as exc:
+        return Response(
+            {"detail": str(exc)},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
 
     return Response({
         "detail": "Маълумоти ҷой нав карда шуд.",
@@ -1219,17 +1378,27 @@ def owner_review_reply(request, review_id):
 )
 @api_view(["POST"])
 @permission_classes([IsAuthenticated])
-def claim_create(request):
+def claim_create(request, slug=None):
     if not request.user.is_active or request.user.is_blocked:
         return Response(
             {"detail": "Дастрасӣ манъ аст."},
             status=status.HTTP_403_FORBIDDEN,
         )
 
+    if slug is None:
+        return Response(
+            {"detail": "Slug-и ҷой талаб карда мешавад."},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    place = get_object_or_404(
+        Place,
+        slug=slug,
+        status=Place.Status.PUBLISHED,
+    )
+
     serializer = ClaimCreateSerializer(data=request.data)
     serializer.is_valid(raise_exception=True)
-
-    place = serializer.validated_data["place"]
 
     if Claim.objects.filter(
         place=place,
@@ -1241,7 +1410,7 @@ def claim_create(request):
             status=status.HTTP_400_BAD_REQUEST,
         )
 
-    claim = serializer.save(user=request.user)
+    claim = serializer.save(user=request.user, place=place)
 
     return Response(
         ClaimSerializer(claim).data,
@@ -1251,6 +1420,8 @@ def claim_create(request):
 
 
 @extend_schema(
+    methods=["GET"],
+    operation_id="admin_claim_list",
     summary="Рӯйхати дархостҳои тасдиқи соҳиби ҷой",
     parameters=[
         OpenApiParameter(
@@ -1260,32 +1431,33 @@ def claim_create(request):
             enum=list(Claim.Status.values),
             description="Филтр аз рӯйи ҳолати дархост",
         ),
+        OpenApiParameter("page", int),
+        OpenApiParameter("limit", int),
     ],
     responses={
-        200: ClaimSerializer(many=True),
+        200: inline_serializer(
+            name="AdminClaimPaginatedResponse",
+            fields={
+                "count": serializers.IntegerField(),
+                "next": serializers.URLField(allow_null=True),
+                "previous": serializers.URLField(allow_null=True),
+                "results": ClaimSerializer(many=True),
+                "items": ClaimSerializer(many=True),
+                "total": serializers.IntegerField(),
+                "page": serializers.IntegerField(),
+                "limit": serializers.IntegerField(),
+            },
+        ),
     },
 )
-@api_view(["GET"])
-@permission_classes([IsPlacewiseAdmin])
-def admin_claim_list(request):
-    claims = Claim.objects.select_related(
-        "place", "user"
-    ).all()
-
-    claim_status = request.query_params.get("status")
-
-    if claim_status in Claim.Status.values:
-        claims = claims.filter(status=claim_status)
-
-    return Response(ClaimSerializer(claims, many=True).data)
-
-
-
 @extend_schema(
-    summary="Баррасии дархости соҳиби ҷой",
+    methods=["POST"],
+    operation_id="admin_claim_action",
+    summary="Тасдиқ ё рад кардани дархости соҳиби ҷой",
     request=inline_serializer(
-        name="AdminClaimReviewRequest",
+        name="AdminClaimActionRequest",
         fields={
+            "claim_id": serializers.IntegerField(),
             "action": serializers.ChoiceField(
                 choices=["approve", "reject"],
             ),
@@ -1295,26 +1467,45 @@ def admin_claim_list(request):
             ),
         },
     ),
-    responses={
-        200: inline_serializer(
-            name="AdminClaimReviewResponse",
-            fields={
-                "detail": serializers.CharField(),
-                "claim_id": serializers.IntegerField(),
-                "status": serializers.CharField(),
-                "reason": serializers.CharField(),
-            },
-        ),
-        400: inline_serializer(
-            name="AdminClaimReviewBadRequest",
-            fields={"detail": serializers.CharField()},
-        ),
-    },
+    responses={200: dict, 400: dict, 404: dict},
 )
-@api_view(["POST"])
+@api_view(["GET", "POST"])
 @permission_classes([IsPlacewiseAdmin])
-def admin_claim_review(request, claim_id):
-    action = request.data.get("action")
+def admin_claim_list(request):
+    if request.method == "POST":
+        claim_id = (
+            request.data.get("claim_id")
+            or request.data.get("id")
+        )
+
+        if not claim_id:
+            return Response(
+                {"error": "claim_id лозим аст"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        return _admin_claim_review_impl(request, claim_id)
+
+    claims = Claim.objects.select_related(
+        "place", "user"
+    ).all()
+
+    claim_status = request.query_params.get("status")
+
+    if claim_status in Claim.Status.values:
+        claims = claims.filter(status=claim_status)
+
+    paginator = StandardPagination()
+    page = paginator.paginate_queryset(claims, request)
+
+    return paginator.get_paginated_response(
+        ClaimSerializer(page, many=True).data
+    )
+
+
+
+def _admin_claim_review_impl(request, claim_id, forced_action=None):
+    action = forced_action or request.data.get("action")
     reason = str(request.data.get("reason", "")).strip()
 
     if action not in ("approve", "reject"):
@@ -1408,11 +1599,11 @@ def upload_image(request):
             status=status.HTTP_403_FORBIDDEN,
         )
 
-    uploaded_file = request.FILES.get("file")
+    uploaded_file = request.FILES.get("file") or request.FILES.get("image")
 
     if not uploaded_file:
         return Response(
-            {"detail": "Файли file ҳатмист."},
+            {"detail": "Файли file ё image ҳатмист."},
             status=status.HTTP_400_BAD_REQUEST,
         )
 
@@ -1486,7 +1677,7 @@ def admin_place_publish(request, place_id):
         "detail": "Ҷой бомуваффақият нашр шуд.",
         "id": place.id,
         "name": place.name,
-        "status": place.status,
+        "status": map_place_status(place.status),
     })
 
 
@@ -1521,7 +1712,7 @@ def admin_place_hide(request, place_id):
         "detail": "Ҷой бомуваффақият пинҳон шуд.",
         "id": place.id,
         "name": place.name,
-        "status": place.status,
+        "status": map_place_status(place.status),
     })
 
 
@@ -1540,7 +1731,7 @@ def admin_places_list(request):
             context={"request": request},
         )
         serializer.is_valid(raise_exception=True)
-        place = serializer.save(status="draft")
+        place = serializer.save()
 
         return Response(
             AdminPlaceSerializer(
@@ -1555,8 +1746,16 @@ def admin_places_list(request):
     status_filter = request.query_params.get("status")
     search = request.query_params.get("search")
 
-    if status_filter in ["draft", "published", "hidden"]:
-        places = places.filter(status=status_filter)
+    status_map = {
+        "active": [Place.Status.PUBLISHED],
+        "published": [Place.Status.PUBLISHED],
+        "hidden": [Place.Status.HIDDEN, Place.Status.DRAFT],
+        "draft": [Place.Status.DRAFT],
+        "closed": [Place.Status.CLOSED],
+    }
+
+    if status_filter in status_map:
+        places = places.filter(status__in=status_map[status_filter])
 
     if search:
         places = places.filter(Q(name__icontains=search))
@@ -1628,25 +1827,19 @@ def admin_place_update(request, place_id):
         )
 
 
-    photo_files = [
-        photo.image
-        for photo in place.photos.all()
-        if photo.image
-    ]
+    photos = list(place.photos.all())
 
     place.delete()
 
-    for image_file in photo_files:
-        image_file.delete(save=False)
+    for photo in photos:
+        _delete_place_photo_files(photo)
 
     return Response(status=status.HTTP_204_NO_CONTENT)
 
 
 
-class AdminPlacePagination(PageNumberPagination):
-    page_size = 20
-    page_size_query_param = "page_size"
-    max_page_size = 100
+class AdminPlacePagination(PlacePagination):
+    pass
 
 
 
@@ -1760,6 +1953,9 @@ def admin_category_detail(request, category_id):
             status=status.HTTP_409_CONFLICT,
         )
 
+    if category.image:
+        category.image.delete(save=False)
+
     category.delete()
     return Response(status=status.HTTP_204_NO_CONTENT)
 
@@ -1793,9 +1989,125 @@ def admin_place_photos(request, place_id):
         context={"request": request},
     )
     serializer.is_valid(raise_exception=True)
-    serializer.save(place=place)
+    serializer.save(
+        place=place,
+        author=request.user,
+        source=request.data.get(
+            "source",
+            PlacePhoto.Source.GIS_2GIS,
+        ),
+    )
 
     return Response(serializer.data, status=status.HTTP_201_CREATED)
+
+
+
+def _owner_can_manage(user, place):
+    if user.is_active is False or getattr(user, "is_blocked", False):
+        return False
+
+    if user.is_staff and (
+        user.is_superuser or getattr(user, "role", "") == "admin"
+    ):
+        return True
+
+    return place.owner_id == user.id
+
+
+@extend_schema(
+    tags=["Owner - Photos"],
+    methods=["GET"],
+    operation_id="owner_place_photos_list",
+    responses={200: PlacePhotoSerializer(many=True)},
+)
+@extend_schema(
+    tags=["Owner - Photos"],
+    methods=["POST"],
+    operation_id="owner_place_photos_create",
+    request={"multipart/form-data": PlacePhotoSerializer},
+    responses={201: PlacePhotoSerializer},
+)
+@api_view(["GET", "POST"])
+@parser_classes([MultiPartParser, FormParser])
+@permission_classes([IsAuthenticated])
+def owner_place_photos(request, place_id):
+    place = get_object_or_404(Place, id=place_id)
+
+    if not _owner_can_manage(request.user, place):
+        return Response(
+            {"detail": "Шумо соҳиби ин ҷой нестед."},
+            status=status.HTTP_403_FORBIDDEN,
+        )
+
+    if request.method == "GET":
+        serializer = PlacePhotoSerializer(
+            place.photos.all(),
+            many=True,
+            context={"request": request},
+        )
+        return Response(serializer.data)
+
+    serializer = PlacePhotoSerializer(
+        data=request.data,
+        context={"request": request},
+    )
+    serializer.is_valid(raise_exception=True)
+    serializer.save(
+        place=place,
+        author=request.user,
+        source=PlacePhoto.Source.OWNER,
+    )
+
+    return Response(serializer.data, status=status.HTTP_201_CREATED)
+
+
+@extend_schema(
+    tags=["Owner - Photos"],
+    methods=["PATCH"],
+    operation_id="owner_place_photo_update",
+    request={"multipart/form-data": PlacePhotoSerializer},
+    responses={200: PlacePhotoSerializer},
+)
+@extend_schema(
+    tags=["Owner - Photos"],
+    methods=["DELETE"],
+    operation_id="owner_place_photo_delete",
+    responses={204: None},
+)
+@api_view(["PATCH", "DELETE"])
+@parser_classes([MultiPartParser, FormParser])
+@permission_classes([IsAuthenticated])
+
+def owner_photo_detail(request, place_id, photo_id):
+    place = get_object_or_404(Place, id=place_id)
+
+    if not _owner_can_manage(request.user, place):
+        return Response(
+            {"detail": "Шумо соҳиби ин ҷой нестед."},
+            status=status.HTTP_403_FORBIDDEN,
+        )
+
+    photo = get_object_or_404(
+        PlacePhoto.objects.select_related("place"),
+        id=photo_id,
+        place_id=place_id,
+    )
+
+    if request.method == "PATCH":
+        serializer = PlacePhotoSerializer(
+            photo,
+            data=request.data,
+            partial=True,
+            context={"request": request},
+        )
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+        return Response(serializer.data)
+
+    _delete_place_photo_files(photo)
+    photo.delete()
+
+    return Response(status=status.HTTP_204_NO_CONTENT)
 
 
 
@@ -1820,16 +2132,7 @@ def admin_photo_detail(request, photo_id):
         serializer.save()
         return Response(serializer.data)
 
-    # Аввал файли суратро аз storage нест мекунем.
-    # Аввал акси асосиро нест мекунем.
-    if photo.image:
-        photo.image.delete(save=False)
-
-    # Баъд thumbnail-ро нест мекунем.
-    if photo.thumbnail:
-        photo.thumbnail.delete(save=False)
-
-    # Баъд сабти суратро аз база нест мекунем.
+    _delete_place_photo_files(photo)
     photo.delete()
 
     return Response(status=status.HTTP_204_NO_CONTENT)

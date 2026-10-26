@@ -17,7 +17,9 @@ Including another URLconf
 from django.conf import settings
 from django.conf.urls.static import static
 from django.contrib import admin
-from django.urls import path, include
+from django.urls import path, re_path, include
+
+from users.views import me as profile_me
 from drf_spectacular.views import (
     SpectacularAPIView,
     SpectacularSwaggerView,
@@ -27,7 +29,8 @@ urlpatterns = [
     path('admin/', admin.site.urls),
     path('api/v1/', include('places.urls')),
     path("api/v1/auth/", include("users.urls")),
-    path("api/v1/admin/users/", include("users.admin_api_urls")),
+    re_path(r"^api/v1/me/?$", profile_me, name="profile-me"),
+    re_path(r"^api/v1/admin/users/?", include("users.admin_api_urls")),
     path("api/v1/", include("reviews.urls")),
     path("api/v1/notifications/", include("notifications.urls")),
 
@@ -35,7 +38,10 @@ urlpatterns = [
     path("api/schema/", SpectacularAPIView.as_view(), name="schema"),
     path(
     "api/docs/",
-    SpectacularSwaggerView.as_view(url_name="schema"),
+    SpectacularSwaggerView.as_view(
+        url_name="schema",
+        template_name_js="core/swagger_ui.js",
+    ),
     name="swagger-ui",
 ),
 ]

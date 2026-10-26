@@ -172,14 +172,28 @@ class FavoriteAPITests(TestCase):
         self.client.force_authenticate(user=self.user)
 
     def test_list_favorites_empty(self):
-        response = self.client.get("/api/v1/favorites/")
+        response = self.client.get("/api/v1/me/favorites")
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json(), [])
 
+    def test_favorites_support_page_limit_pagination(self):
+        Favorite.objects.create(user=self.user, place=self.place)
+
+        response = self.client.get(
+            "/api/v1/me/favorites?page=1&limit=1"
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["total"], 1)
+        self.assertEqual(response.data["page"], 1)
+        self.assertEqual(response.data["limit"], 1)
+        self.assertEqual(len(response.data["items"]), 1)
+        self.assertEqual(response.data["items"][0]["place"], self.place.id)
+
     def test_add_favorite(self):
         response = self.client.post(
-            "/api/v1/favorites/",
+            "/api/v1/me/favorites",
             {"place": self.place.id},
             format="json",
         )
@@ -193,7 +207,7 @@ class FavoriteAPITests(TestCase):
         )
 
     def test_adding_same_favorite_twice_does_not_duplicate(self):
-        url = "/api/v1/favorites/"
+        url = "/api/v1/me/favorites"
         data = {"place": self.place.id}
 
         first = self.client.post(url, data, format="json")
@@ -213,7 +227,9 @@ class FavoriteAPITests(TestCase):
         Favorite.objects.create(user=self.user, place=self.place)
 
         response = self.client.delete(
-            f"/api/v1/favorites/{self.place.id}/"
+            "/api/v1/me/favorites",
+            {"place": self.place.id},
+            format="json",
         )
 
         self.assertEqual(
@@ -227,10 +243,35 @@ class FavoriteAPITests(TestCase):
             ).exists()
         )
 
+    def test_me_favorites_alias_lists_and_deletes(self):
+        Favorite.objects.create(user=self.user, place=self.place)
+
+        list_response = self.client.get("/api/v1/me/favorites")
+
+        self.assertEqual(list_response.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(list_response.json()), 1)
+
+        delete_response = self.client.delete(
+            "/api/v1/me/favorites",
+            {"place": self.place.id},
+            format="json",
+        )
+
+        self.assertEqual(
+            delete_response.status_code,
+            status.HTTP_204_NO_CONTENT,
+        )
+        self.assertFalse(
+            Favorite.objects.filter(
+                user=self.user,
+                place=self.place,
+            ).exists()
+        )
+
     def test_favorites_requires_authentication(self):
         self.client.force_authenticate(user=None)
 
-        response = self.client.get("/api/v1/favorites/")
+        response = self.client.get("/api/v1/me/favorites")
 
         self.assertEqual(
             response.status_code,
@@ -242,7 +283,7 @@ class FavoriteAPITests(TestCase):
 
     def test_add_favorite_with_missing_place(self):
         response = self.client.post(
-            "/api/v1/favorites/",
+            "/api/v1/me/favorites",
             {"place": 999999},
             format="json",
         )
@@ -260,7 +301,7 @@ class FavoriteAPITests(TestCase):
         )
 
         response = self.client.post(
-            "/api/v1/favorites/",
+            "/api/v1/me/favorites",
             {"place": draft_place.id},
             format="json",
         )
@@ -369,7 +410,7 @@ class ImportPlacesCommandTests(TestCase):
         )
 
         self.assertEqual(place.name["ru"], "Test Cafe")
-        self.assertEqual(place.status, Place.Status.DRAFT)
+        self.assertEqual(place.status, Place.Status.PUBLISHED)
         self.assertEqual(place.ext_rating, 4.5)
         self.assertEqual(place.ext_reviews, 120)
 
@@ -668,6 +709,20 @@ class UploadImageAPITests(TestCase):
             with default_storage.open(saved_path, "rb") as saved_file:
                 with Image.open(saved_file) as saved_image:
                     self.assertEqual(saved_image.format, "WEBP")
+
+    @override_settings()
+    def test_tz_uploads_path_and_image_field(self):
+        with self.settings(MEDIA_ROOT=self.media_dir):
+            self.client.force_authenticate(user=self.user)
+
+            response = self.client.post(
+                "/api/v1/uploads",
+                {"image": self.make_image()},
+                format="multipart",
+            )
+
+        self.assertEqual(response.status_code, 201, response.data)
+        self.assertEqual(response.data["format"], "webp")
 
     def test_guest_cannot_upload_image(self):
         response = self.client.post(
@@ -1085,6 +1140,51 @@ class AdminPlacePhotoAPITests(TestCase):
             PlacePhoto.objects.filter(id=photo_id).exists()
         )
 
+    def test_owner_can_manage_place_photos(self):
+        self.place.owner = self.user
+        self.place.save(update_fields=["owner"])
+        self.client.force_authenticate(user=self.user)
+
+        with self.settings(MEDIA_ROOT=self.media_dir):
+            upload = self.client.post(
+                f"/api/v1/owner/places/{self.place.id}/photos",
+                {"image": self.make_image()},
+                format="multipart",
+            )
+
+            self.assertEqual(upload.status_code, 201, upload.data)
+            photo_id = upload.data["id"]
+
+            listing = self.client.get(
+                f"/api/v1/owner/places/{self.place.id}/photos"
+            )
+            self.assertEqual(listing.status_code, 200)
+            self.assertEqual(len(listing.data), 1)
+
+            delete = self.client.delete(
+                f"/api/v1/owner/places/{self.place.id}/photos/{photo_id}/"
+            )
+
+        self.assertEqual(delete.status_code, 204)
+        self.assertFalse(PlacePhoto.objects.filter(id=photo_id).exists())
+
+    def test_non_owner_cannot_manage_place_photos(self):
+        other = get_user_model().objects.create_user(
+            username="photo_non_owner",
+            phone="+992900000299",
+            name="Non Owner",
+        )
+        self.client.force_authenticate(user=other)
+
+        with self.settings(MEDIA_ROOT=self.media_dir):
+            response = self.client.post(
+                f"/api/v1/owner/places/{self.place.id}/photos",
+                {"image": self.make_image()},
+                format="multipart",
+            )
+
+        self.assertEqual(response.status_code, 403)
+
     def test_missing_place_returns_404(self):
         self.client.force_authenticate(user=self.admin)
 
@@ -1180,7 +1280,8 @@ class AdminPlaceCRUDAPITests(TestCase):
         self.assertGreaterEqual(response.data["count"], 1)
 
         for place in response.data["results"]:
-            self.assertEqual(place["status"], "draft")
+            self.assertEqual(place["status"], "hidden")
+            self.assertEqual(place["status_internal"], "draft")
 
 
     def test_admin_can_search_places_by_name(self):
@@ -1406,6 +1507,42 @@ class AdminPlacePublishHideAPITests(TestCase):
 
 
 
+    def test_admin_can_filter_places_by_tz_status(self):
+        active_place = Place.objects.create(
+            category=self.category,
+            name={"ru": "Активное", "tg": "Фаъол", "en": "Active"},
+            slug="crud-active-place",
+            address={"ru": "Душанбе", "tg": "Душанбе", "en": "Dushanbe"},
+            status=Place.Status.PUBLISHED,
+        )
+
+        response = self.client.get(
+            "/api/v1/admin/places/?status=active"
+        )
+
+        self.assertEqual(response.status_code, 200)
+        ids = [item["id"] for item in response.data["results"]]
+        self.assertIn(active_place.id, ids)
+        self.assertNotIn(self.place.id, ids)
+        self.assertTrue(
+            all(item["status_tz"] == "active"
+                for item in response.data["results"])
+        )
+
+    def test_admin_can_update_place_with_tz_status(self):
+        response = self.client.patch(
+            f"/api/v1/admin/places/{self.place.id}/",
+            {"status_tz": "active"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 200, response.data)
+        self.assertEqual(response.data["status_tz"], "active")
+
+        self.place.refresh_from_db()
+        self.assertEqual(self.place.status, Place.Status.PUBLISHED)
+
+
 class AdminPlaceCreateAPITests(TestCase):
     def setUp(self):
         self.client = APIClient()
@@ -1474,6 +1611,24 @@ class AdminPlaceCreateAPITests(TestCase):
 
         place = Place.objects.get(slug="new-cafe-create-test")
         self.assertEqual(place.status, Place.Status.DRAFT)
+
+    def test_admin_can_create_place_with_tz_status(self):
+        self.client.force_authenticate(user=self.admin)
+        payload = dict(self.payload)
+        payload["slug"] = "new-cafe-active-test"
+        payload["status_tz"] = "active"
+
+        response = self.client.post(
+            self.url,
+            payload,
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 201, response.data)
+        self.assertEqual(response.data["status_tz"], "active")
+
+        place = Place.objects.get(slug="new-cafe-active-test")
+        self.assertEqual(place.status, Place.Status.PUBLISHED)
 
     def test_regular_user_cannot_create_place(self):
         self.client.force_authenticate(user=self.user)
@@ -1579,9 +1734,8 @@ class AdminClaimAPITests(TestCase):
 
     def test_guest_cannot_create_claim(self):
         response = self.client.post(
-            "/api/v1/claims/",
+            f"/api/v1/places/{self.place.slug}/claim",
             {
-                "place": self.place.id,
                 "document_url": "https://example.com/document.pdf",
             },
             format="json",
@@ -1592,9 +1746,8 @@ class AdminClaimAPITests(TestCase):
         self.client.force_authenticate(user=self.regular_user)
 
         response = self.client.post(
-            "/api/v1/claims/",
+            f"/api/v1/places/{self.place.slug}/claim",
             {
-                "place": self.place.id,
                 "document_url": "https://example.com/document.pdf",
             },
             format="json",
@@ -1614,9 +1767,8 @@ class AdminClaimAPITests(TestCase):
         self.client.force_authenticate(user=self.owner_candidate)
 
         response = self.client.post(
-            "/api/v1/claims/",
+            f"/api/v1/places/{self.place.slug}/claim",
             {
-                "place": self.place.id,
                 "document_url": "https://example.com/another.pdf",
             },
             format="json",
@@ -1638,7 +1790,10 @@ class AdminClaimAPITests(TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertTrue(
-            any(item["id"] == self.claim.id for item in response.json())
+            any(
+                item["id"] == self.claim.id
+                for item in response.json()["items"]
+            )
         )
 
     def test_admin_can_filter_claims_by_status(self):
@@ -1652,7 +1807,7 @@ class AdminClaimAPITests(TestCase):
         self.assertTrue(
             all(
                 item["status"] == Claim.Status.PENDING
-                for item in response.json()
+                for item in response.json()["items"]
             )
         )
 
@@ -1660,8 +1815,8 @@ class AdminClaimAPITests(TestCase):
         self.client.force_authenticate(user=self.admin)
 
         response = self.client.post(
-            f"/api/v1/admin/claims/{self.claim.id}/",
-            {"action": "approve"},
+            "/api/v1/admin/claims/",
+            {"claim_id": self.claim.id, "action": "approve"},
             format="json",
         )
 
@@ -1682,8 +1837,8 @@ class AdminClaimAPITests(TestCase):
         self.client.force_authenticate(user=self.admin)
 
         response = self.client.post(
-            f"/api/v1/admin/claims/{self.claim.id}/",
-            {"action": "reject"},
+            "/api/v1/admin/claims/",
+            {"claim_id": self.claim.id, "action": "reject"},
             format="json",
         )
 
@@ -1695,8 +1850,9 @@ class AdminClaimAPITests(TestCase):
         self.client.force_authenticate(user=self.admin)
 
         response = self.client.post(
-            f"/api/v1/admin/claims/{self.claim.id}/",
+            "/api/v1/admin/claims/",
             {
+                "claim_id": self.claim.id,
                 "action": "reject",
                 "reason": "Ҳуҷҷатҳо нопурраанд.",
             },
@@ -1713,15 +1869,19 @@ class AdminClaimAPITests(TestCase):
         self.client.force_authenticate(user=self.admin)
 
         first_response = self.client.post(
-            f"/api/v1/admin/claims/{self.claim.id}/",
-            {"action": "approve"},
+            "/api/v1/admin/claims/",
+            {"claim_id": self.claim.id, "action": "approve"},
             format="json",
         )
         self.assertEqual(first_response.status_code, 200)
 
         second_response = self.client.post(
-            f"/api/v1/admin/claims/{self.claim.id}/",
-            {"action": "reject", "reason": "Сабаб"},
+            "/api/v1/admin/claims/",
+            {
+                "claim_id": self.claim.id,
+                "action": "reject",
+                "reason": "Сабаб",
+            },
             format="json",
         )
 
@@ -1731,8 +1891,8 @@ class AdminClaimAPITests(TestCase):
         self.client.force_authenticate(user=self.admin)
 
         response = self.client.post(
-            "/api/v1/admin/claims/999999/",
-            {"action": "approve"},
+            "/api/v1/admin/claims/",
+            {"claim_id": 999999, "action": "approve"},
             format="json",
         )
 
@@ -1742,8 +1902,8 @@ class AdminClaimAPITests(TestCase):
         self.client.force_authenticate(user=self.admin)
 
         response = self.client.post(
-            f"/api/v1/admin/claims/{self.claim.id}/",
-            {"action": "maybe"},
+            "/api/v1/admin/claims/",
+            {"claim_id": self.claim.id, "action": "maybe"},
             format="json",
         )
 
@@ -1880,7 +2040,7 @@ class AdminImport2GISAPITests(TestCase):
         )
         self.assertEqual(place.name["ru"], "API Test Cafe")
         self.assertEqual(place.category, self.category)
-        self.assertEqual(place.status, Place.Status.DRAFT)
+        self.assertEqual(place.status, Place.Status.PUBLISHED)
 
     def test_reimport_does_not_create_duplicate(self):
         self.client.force_authenticate(user=self.admin)
@@ -1951,3 +2111,224 @@ class AdminImport2GISAPITests(TestCase):
                 source_id="12345678901234568",
             ).exists()
         )
+
+
+class OwnerPlaceUpdateTests(TestCase):
+    @classmethod
+    def setUpTestData(cls):
+        cls.owner = get_user_model().objects.create_user(
+            username="+992900000041",
+            phone="+992900000041",
+            name="Owner",
+            role="owner",
+        )
+        cls.other_user = get_user_model().objects.create_user(
+            username="+992900000042",
+            phone="+992900000042",
+            name="Other",
+        )
+        cls.category = Category.objects.create(
+            key="owner-update-category",
+            slug="owner-update-category",
+            name={"ru": "Кафе"},
+        )
+        cls.place = Place.objects.create(
+            category=cls.category,
+            name={"ru": "Место владельца"},
+            slug="owner-update-place",
+            address={"ru": "Душанбе"},
+            phones=["+992900000041"],
+            opening_hours={"mon": ["08:00", "22:00"]},
+            owner=cls.owner,
+            status=Place.Status.PUBLISHED,
+        )
+
+    def setUp(self):
+        self.client = APIClient()
+
+    def make_image(self):
+        buffer = BytesIO()
+        image = Image.new("RGB", (100, 80), color="green")
+        image.save(buffer, format="JPEG")
+
+        return SimpleUploadedFile(
+            "owner-photo.jpg",
+            buffer.getvalue(),
+            content_type="image/jpeg",
+        )
+
+    def test_owner_can_update_allowed_fields_and_add_photos(self):
+        self.client.force_authenticate(user=self.owner)
+
+        response = self.client.patch(
+            f"/api/v1/owner/places/{self.place.id}",
+            {
+                "about": {"ru": "Нав"},
+                "phones": ["+992900000099"],
+                "opening_hours": {"mon": ["09:00", "23:00"]},
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 200, response.data)
+
+        photo_response = self.client.patch(
+            f"/api/v1/owner/places/{self.place.id}",
+            {"photos": [self.make_image()]},
+            format="multipart",
+        )
+
+        self.assertEqual(
+            photo_response.status_code,
+            200,
+            photo_response.data,
+        )
+
+        self.place.refresh_from_db()
+
+        self.assertEqual(self.place.about["ru"], "Нав")
+        self.assertEqual(self.place.phones, ["+992900000099"])
+        self.assertEqual(self.place.opening_hours["mon"], ["09:00", "23:00"])
+        self.assertEqual(self.place.photos.count(), 1)
+
+        photo = self.place.photos.get()
+        self.assertEqual(photo.author, self.owner)
+        self.assertEqual(photo.source, PlacePhoto.Source.OWNER)
+
+    def test_owner_cannot_update_name_or_slug(self):
+        self.client.force_authenticate(user=self.owner)
+
+        response = self.client.patch(
+            f"/api/v1/owner/places/{self.place.id}",
+            {
+                "name": {"ru": "Взлом"},
+                "slug": "hacked",
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 200)
+
+        self.place.refresh_from_db()
+        self.assertEqual(self.place.name["ru"], "Место владельца")
+        self.assertEqual(self.place.slug, "owner-update-place")
+
+    def test_owner_can_remove_own_photo(self):
+        photo = PlacePhoto.objects.create(
+            place=self.place,
+            author=self.owner,
+            source=PlacePhoto.Source.OWNER,
+            image=SimpleUploadedFile(
+                "remove-me.jpg",
+                b"test-image",
+                content_type="image/jpeg",
+            ),
+        )
+
+        self.client.force_authenticate(user=self.owner)
+
+        response = self.client.patch(
+            f"/api/v1/owner/places/{self.place.id}",
+            {"remove_photo_ids": [photo.id]},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertFalse(
+            PlacePhoto.objects.filter(id=photo.id).exists()
+        )
+
+    def test_owner_can_use_hours_and_phone_aliases(self):
+        self.client.force_authenticate(user=self.owner)
+
+        response = self.client.patch(
+            f"/api/v1/owner/places/{self.place.id}",
+            {
+                "hours": {"mon": ["10:00", "20:00"]},
+                "phone": "992 90 000 00 99",
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 200, response.data)
+
+        self.place.refresh_from_db()
+        self.assertEqual(
+            self.place.opening_hours["mon"],
+            ["10:00", "20:00"],
+        )
+        self.assertIn("+992900000099", self.place.phones)
+        self.assertIn("+992900000041", self.place.phones)
+
+    def test_owner_invalid_phone_is_rejected(self):
+        self.client.force_authenticate(user=self.owner)
+
+        response = self.client.patch(
+            f"/api/v1/owner/places/{self.place.id}",
+            {"phones": ["not-a-phone"]},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 400)
+
+    def test_owner_removing_photo_deletes_files(self):
+        photo = PlacePhoto.objects.create(
+            place=self.place,
+            author=self.owner,
+            source=PlacePhoto.Source.OWNER,
+            image=SimpleUploadedFile(
+                "remove-file.jpg",
+                b"test-image",
+                content_type="image/jpeg",
+            ),
+            thumbnail=SimpleUploadedFile(
+                "remove-file-thumb.jpg",
+                b"test-thumbnail",
+                content_type="image/jpeg",
+            ),
+        )
+        image_path = Path(photo.image.path)
+        thumbnail_path = Path(photo.thumbnail.path)
+        self.assertTrue(image_path.exists())
+        self.assertTrue(thumbnail_path.exists())
+
+        self.client.force_authenticate(user=self.owner)
+
+        response = self.client.patch(
+            f"/api/v1/owner/places/{self.place.id}",
+            {"remove_photo_ids": [photo.id]},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertFalse(Path(image_path).exists())
+        self.assertFalse(Path(thumbnail_path).exists())
+
+    def test_owner_places_are_paginated(self):
+        Place.objects.create(
+            category=self.category,
+            name={"ru": "Второе место"},
+            slug="owner-update-place-2",
+            address={"ru": "Душанбе"},
+            owner=self.owner,
+            status=Place.Status.PUBLISHED,
+        )
+        self.client.force_authenticate(user=self.owner)
+
+        response = self.client.get("/api/v1/owner/places?page=1&limit=1")
+
+        self.assertEqual(response.status_code, 200, response.data)
+        self.assertEqual(response.data["total"], 2)
+        self.assertEqual(response.data["limit"], 1)
+        self.assertEqual(len(response.data["items"]), 1)
+
+    def test_non_owner_cannot_update_place(self):
+        self.client.force_authenticate(user=self.other_user)
+
+        response = self.client.patch(
+            f"/api/v1/owner/places/{self.place.id}",
+            {"about": {"ru": "Чужое"}},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 404)

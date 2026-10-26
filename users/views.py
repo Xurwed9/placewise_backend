@@ -20,6 +20,7 @@ from rest_framework.parsers import MultiPartParser, FormParser, JSONParser
 from drf_spectacular.utils import extend_schema, OpenApiRequest
 from .serializers import UserProfileSerializer, UserProfileUpdateSerializer
 from .throttles import OTPRequestRateThrottle
+from core.sms import SMSDeliveryError, send_sms
 
 from .serializers import UserProfileSerializer
 
@@ -28,21 +29,7 @@ from .models import PhoneOTP
 logger = logging.getLogger(__name__)
 
 
-def normalize_phone(phone):
-    phone = re.sub(r"[\s()\-]", "", phone)
-
-    if phone.startswith("992"):
-        phone = "+" + phone
-    elif phone.startswith("9") and len(phone) == 9:
-        phone = "+992" + phone
-    elif phone.startswith("00"):
-        phone = "+" + phone[2:]
-
-    if not re.fullmatch(r"\+[1-9]\d{7,14}", phone):
-        return None
-
-    return phone
-
+from .phone_utils import normalize_phone
 
 
 
@@ -108,16 +95,27 @@ def request_code(request):
 
     code = f"{secrets.randbelow(10000):04d}"
 
-    PhoneOTP.objects.create(
+    otp = PhoneOTP.objects.create(
         phone=phone,
         code_hash=make_password(code),
         expires_at=now + timedelta(minutes=3),
     )
 
-    # Development only: print the code to the server terminal.
-    # OTP танҳо дар development нишон дода мешавад.
-    # Танҳо барои development; дар production OTP нишон дода намешавад.
-    if settings.DEBUG:
+    try:
+        sms_sent = send_sms(
+            phone,
+            f"Placewise: коди тасдиқ {code}. Муҳлат: 3 дақиқа.",
+        )
+    except SMSDeliveryError as exc:
+        otp.delete()
+        logger.error("Failed to deliver OTP SMS to %s: %s", phone, exc)
+        return Response(
+            {"detail": "Хатои фиристодани SMS. Баъдтар кӯшиш кунед."},
+            status=status.HTTP_503_SERVICE_UNAVAILABLE,
+        )
+
+    # Development only: print the code when real SMS is disabled.
+    if settings.DEBUG and not sms_sent:
         print(f"Development OTP: {code}")
 
     return Response(

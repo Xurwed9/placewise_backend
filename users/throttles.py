@@ -1,28 +1,28 @@
-import re
+from rest_framework.throttling import SimpleRateThrottle
 
-from rest_framework.throttling import AnonRateThrottle
+from .phone_utils import normalize_phone
 
 
-class OTPRequestRateThrottle(AnonRateThrottle):
+class OTPRequestRateThrottle(SimpleRateThrottle):
     scope = "otp_request"
 
-    def allow_request(self, request, view):
-        phone = request.data.get("phone", "")
+    def get_cache_key(self, request, view):
+        phone = normalize_phone(request.data.get("phone", ""))
 
-        # Дархости нодуруст бояд аз view ҷавоби 400 гирад.
-        if not isinstance(phone, str):
-            return True
+        if phone is None:
+            return None
 
-        phone = re.sub(r"[\s()\-]", "", phone)
+        return self.cache_format % {
+            "scope": self.scope,
+            "ident": phone,
+        }
 
-        if phone.startswith("992"):
-            phone = "+" + phone
-        elif phone.startswith("9") and len(phone) == 9:
-            phone = "+992" + phone
-        elif phone.startswith("00"):
-            phone = "+" + phone[2:]
 
-        if not re.fullmatch(r"\+[1-9]\d{7,14}", phone):
-            return True
+class AdminLoginRateThrottle(SimpleRateThrottle):
+    scope = "admin_login"
 
-        return super().allow_request(request, view)
+    def get_cache_key(self, request, view):
+        return self.cache_format % {
+            "scope": self.scope,
+            "ident": self.get_ident(request),
+        }

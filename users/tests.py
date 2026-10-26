@@ -1,6 +1,8 @@
 from django.core.cache import cache
 from django.test import override_settings
 from datetime import timedelta
+from unittest.mock import patch
+from urllib.error import URLError
 
 from django.contrib.auth import get_user_model
 from django.contrib.auth.hashers import make_password
@@ -30,9 +32,9 @@ class AuthAPITests(TestCase):
         cache.clear()
         self.client = APIClient()
         self.phone = "+992900123456"
-        self.request_url = "/api/v1/auth/request-code/"
-        self.verify_url = "/api/v1/auth/verify-code/"
-        self.me_url = "/api/v1/auth/me/"
+        self.request_url = "/api/v1/auth/send-code/"
+        self.verify_url = "/api/v1/auth/verify/"
+        self.me_url = "/api/v1/me/"
 
     def create_otp(self, code="1234", phone=None, expires_in=180):
         return PhoneOTP.objects.create(
@@ -97,6 +99,61 @@ class AuthAPITests(TestCase):
         self.assertEqual(
             response.status_code,
             status.HTTP_429_TOO_MANY_REQUESTS,
+        )
+
+    @override_settings(
+        SMS_ENABLED=True,
+        SMS_API_URL="https://sms.example.test/send",
+        SMS_API_KEY="test-key",
+        SMS_SENDER="Placewise",
+    )
+    @patch("core.sms.urlopen")
+    def test_request_code_sends_sms(self, urlopen_mock):
+        urlopen_mock.return_value.__enter__.return_value.status = 200
+
+        response = self.client.post(
+            self.request_url,
+            {"phone": self.phone},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertTrue(
+            PhoneOTP.objects.filter(phone=self.phone).exists()
+        )
+        urlopen_mock.assert_called_once()
+
+        request = urlopen_mock.call_args.args[0]
+        self.assertEqual(request.full_url, "https://sms.example.test/send")
+        self.assertEqual(
+            request.headers["Authorization"],
+            "Bearer test-key",
+        )
+        self.assertIn(b'"phone": "+992900123456"', request.data)
+
+    @override_settings(
+        SMS_ENABLED=True,
+        SMS_API_URL="https://sms.example.test/send",
+        SMS_API_KEY="test-key",
+        SMS_SENDER="Placewise",
+    )
+    @patch("core.sms.urlopen", side_effect=URLError("gateway down"))
+    def test_request_code_deletes_otp_when_sms_delivery_fails(
+        self,
+        urlopen_mock,
+    ):
+        response = self.client.post(
+            self.request_url,
+            {"phone": self.phone},
+            format="json",
+        )
+
+        self.assertEqual(
+            response.status_code,
+            status.HTTP_503_SERVICE_UNAVAILABLE,
+        )
+        self.assertFalse(
+            PhoneOTP.objects.filter(phone=self.phone).exists()
         )
 
     def test_verify_without_otp(self):
@@ -393,4 +450,121 @@ class AdminUserAPITests(TestCase):
         self.assertEqual(
             response.status_code,
             status.HTTP_403_FORBIDDEN,
+        )
+
+
+class AdminUserContractTests(TestCase):
+    def setUp(self):
+        self.client = APIClient()
+
+        self.admin = User.objects.create_user(
+            username="+992900000101",
+            phone="+992900000101",
+            name="Admin",
+            role="admin",
+            is_staff=True,
+        )
+
+        self.moderator = User.objects.create_user(
+            username="+992900000102",
+            phone="+992900000102",
+            name="Moderator",
+            role="moderator",
+            is_staff=False,
+        )
+
+        self.list_url = "/api/v1/admin/users/"
+
+    def test_moderator_without_is_staff_can_list_users(self):
+        self.client.force_authenticate(user=self.moderator)
+
+        response = self.client.get(self.list_url)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertIn("items", response.data)
+
+    def test_admin_can_create_user_without_password(self):
+        self.client.force_authenticate(user=self.admin)
+
+        response = self.client.post(
+            self.list_url,
+            {
+                "phone": "+992900000103",
+                "name": "Created By Admin",
+                "role": "owner",
+                "lang": "tg",
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
+        user = User.objects.get(phone="+992900000103")
+
+        self.assertFalse(user.has_usable_password())
+        self.assertEqual(user.language, "tg")
+        self.assertEqual(user.role, "owner")
+        self.assertFalse(user.is_staff)
+        self.assertEqual(response.data["lang"], "tg")
+
+    def test_role_change_synchronizes_is_staff(self):
+        user = User.objects.create_user(
+            username="+992900000104",
+            phone="+992900000104",
+            name="Role User",
+        )
+
+        self.client.force_authenticate(user=self.admin)
+
+        response = self.client.patch(
+            f"{self.list_url}{user.id}/",
+            {"role": "moderator"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        user.refresh_from_db()
+        self.assertTrue(user.is_staff)
+
+        response = self.client.patch(
+            f"{self.list_url}{user.id}/",
+            {"role": "user"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        user.refresh_from_db()
+        self.assertFalse(user.is_staff)
+
+
+class BlockedJWTAuthenticationTests(TestCase):
+    def setUp(self):
+        self.client = APIClient()
+
+        self.user = User.objects.create_user(
+            username="+992900000111",
+            phone="+992900000111",
+            name="Blocked JWT User",
+            is_blocked=True,
+        )
+
+    def test_blocked_user_cannot_use_access_token(self):
+        from rest_framework_simplejwt.tokens import RefreshToken
+
+        token = RefreshToken.for_user(self.user).access_token
+        self.client.credentials(
+            HTTP_AUTHORIZATION=f"Bearer {token}"
+        )
+
+        response = self.client.get("/api/v1/me")
+
+        self.assertEqual(
+            response.status_code,
+            status.HTTP_401_UNAUTHORIZED,
+        )
+        self.assertEqual(
+            response.data["error"]["code"],
+            "USER_BLOCKED",
         )

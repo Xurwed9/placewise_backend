@@ -110,6 +110,7 @@ MIDDLEWARE = [
     "django.contrib.auth.middleware.AuthenticationMiddleware",
     "django.contrib.messages.middleware.MessageMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
+    "core.middleware.APIErrorEnvelopeMiddleware",
 ]
 
 SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
@@ -296,12 +297,13 @@ from datetime import timedelta
 
 REST_FRAMEWORK = {
     "DEFAULT_AUTHENTICATION_CLASSES": [
-        "rest_framework_simplejwt.authentication.JWTAuthentication",
+        "users.authentication.BlockedAwareJWTAuthentication",
     ],
     "DEFAULT_PERMISSION_CLASSES": [
         "rest_framework.permissions.AllowAny",
     ],
-    "DEFAULT_SCHEMA_CLASS": "drf_spectacular.openapi.AutoSchema",
+    "DEFAULT_SCHEMA_CLASS": "core.schema.PlacewiseAutoSchema",
+    "EXCEPTION_HANDLER": "core.exceptions.api_exception_handler",
 
     # Маҳдудияти шумораи дархостҳои API
     "DEFAULT_THROTTLE_CLASSES": [
@@ -313,6 +315,7 @@ REST_FRAMEWORK = {
         "anon": "60/minute",
         "user": "120/minute",
         "otp_request": "5/hour",
+        "admin_login": "10/minute",
     },
 
 }
@@ -346,74 +349,215 @@ SPECTACULAR_SETTINGS = {
     "DESCRIPTION": """
 Placewise — API-и феҳристи ҷойҳои Душанбе.
 
-Гурӯҳҳои асосӣ:
-- Places & Categories — ҷойҳо ва категорияҳо
-- Search & Home — ҷустуҷӯ ва саҳифаи асосӣ
-- Authentication & Profile — воридшавӣ ва профил
-- Reviews — отзывҳо, лайк ва шикоят
-- Moderation — санҷиши отзывҳо
-- Favorites — ҷойҳои дӯстдошта
-- Owner — API-и соҳибони ҷойҳо
+**Тартиби гурӯҳҳо дар Swagger:**
+
+1. **Public API** — Authentication, Profile, Categories, Places,
+   Search & Home, Reviews, Favorites, Claims, Notifications, Uploads.
+2. **Owner API** — Owner - Places, Owner - Photos, Owner - Reviews.
+3. **Admin API** — Admin - Authentication, Admin - Users, Admin - Categories,
+   Admin - Places, Admin - Claims, Admin - Reviews, Admin - Reports,
+   Admin - Imports.
+
+Ҳар endpoint дорои тавсифи кӯтоҳ ва гурӯҳи муайян аст. Барои зуд ёфтани
+API қуттии ҷустуҷӯ дар болои саҳифаро истифода баред.
 """,
     "VERSION": "1.0.0",
     "COMPONENT_SPLIT_REQUEST": True,
     "SORT_OPERATIONS": True,
+    "SERVE_INCLUDE_SCHEMA": False,
+    "SWAGGER_UI_SETTINGS": {
+        "deepLinking": True,
+        "displayRequestDuration": True,
+        "docExpansion": "none",
+        "defaultModelsExpandDepth": -1,
+        "filter": True,
+        "persistAuthorization": True,
+        "tryItOutEnabled": True,
+        "tagsSorter": "alpha",
+        "operationsSorter": "alpha",
+    },
     "TAGS": [
         {
-            "name": "Places",
-            "description": "Рӯйхат, маълумот, харита ва ҷойҳои монанд.",
+            "name": "Authentication",
+            "description": "Воридшавӣ, дархости код, тасдиқ ва навсозии JWT.",
+        },
+        {
+            "name": "Profile",
+            "description": "Профили корбар: гирифтан ва таҳрир кардан.",
         },
         {
             "name": "Categories",
             "description": "Категорияҳои ҷойҳо.",
         },
         {
+            "name": "Places",
+            "description": "Рӯйхат, маълумот, харита ва ҷойҳои монанд.",
+        },
+        {
             "name": "Search & Home",
             "description": "Ҷустуҷӯ, пешниҳодҳо ва саҳифаи асосӣ.",
         },
         {
-            "name": "Authentication & Profile",
-            "description": "Рамзи тасдиқ, JWT ва профили корбар.",
-        },
-        {
             "name": "Reviews",
-            "description": "Сохтан, хондан, таҳрир ва нест кардани отзывҳо.",
-        },
-        {
-            "name": "Review Likes & Reports",
-            "description": "Лайк ва шикоят аз отзывҳо.",
-        },
-        {
-            "name": "Moderation",
-            "description": "Нашр ё рад кардани отзывҳо.",
+            "description": "Сохтан, хондан, таҳрир, лайк ва шикояти отзывҳо.",
         },
         {
             "name": "Favorites",
-            "description": "Идоракунии ҷойҳои дӯстдошта.",
+            "description": "Ҷойҳои дӯстдоштаи корбар.",
         },
         {
-            "name": "Owner",
-            "description": "Идоракунии ҷойҳо ва ҷавоб ба отзывҳо.",
+            "name": "Claims",
+            "description": "Дархостҳои тасдиқи соҳиби ҷой.",
         },
         {
-            "name": "Admin",
-            "description": "Амалиётҳои маъмурӣ.",
+            "name": "Notifications",
+            "description": "Огоҳиномаҳои корбар.",
+        },
+        {
+            "name": "Uploads",
+            "description": "Бор кардани аксҳо.",
+        },
+        {
+            "name": "Owner - Places",
+            "description": "Идоракунии ҷойҳои худ.",
+        },
+        {
+            "name": "Owner - Photos",
+            "description": "Идоракунии аксҳои ҷойҳои худ.",
+        },
+        {
+            "name": "Owner - Reviews",
+            "description": "Ҷавоб додан ба отзывҳо.",
+        },
+        {
+            "name": "Admin - Authentication",
+            "description": "Воридшавии маъмур бо телефон ва парол.",
+        },
+        {
+            "name": "Admin - Users",
+            "description": "Идоракунии корбарон.",
+        },
+        {
+            "name": "Admin - Categories",
+            "description": "Идоракунии категорияҳо.",
+        },
+        {
+            "name": "Admin - Places",
+            "description": "Идоракунии ҷойҳо ва аксҳои онҳо.",
+        },
+        {
+            "name": "Admin - Claims",
+            "description": "Баррасӣ ва тасдиқи дархостҳои соҳиби ҷой.",
+        },
+        {
+            "name": "Admin - Reviews",
+            "description": "Модератсия ва тасдиқи отзывҳо.",
+        },
+        {
+            "name": "Admin - Reports",
+            "description": "Шикоятҳо аз отзывҳо ва ҳалли онҳо.",
+        },
+        {
+            "name": "Admin - Imports",
+            "description": "Импорти ҷойҳо аз 2GIS.",
         },
     ],
-
     "ENUM_NAME_OVERRIDES": {
         "PlaceStatus": "places.models.PLACE_STATUS_CHOICES",
         "ClaimStatus": "places.models.CLAIM_STATUS_CHOICES",
         "ReviewStatus": "reviews.models.REVIEW_STATUS_CHOICES",
         "ReviewReportStatus": "reviews.models.REVIEW_REPORT_STATUS_CHOICES",
+        "PlaceStatusTz": [
+            "active",
+            "hidden",
+            "closed",
+            "draft",
+            "published",
+        ],
+        "UserLanguage": ["ru", "tg", "en"],
+        "UserRole": ["user", "owner", "moderator", "admin"],
+        "ReviewLang": [
+            ("ru", "Русский"),
+            ("tg", "Тоҷикӣ"),
+            ("en", "English"),
+        ],
     },
-
 }
-
 
 
 MEDIA_URL = "/media/"
 MEDIA_ROOT = BASE_DIR / "media"
+
+# File storage: local filesystem by default, S3-compatible storage in production.
+AWS_STORAGE_BUCKET_NAME = os.getenv("AWS_STORAGE_BUCKET_NAME", "").strip()
+
+if AWS_STORAGE_BUCKET_NAME:
+    AWS_ACCESS_KEY_ID = os.getenv("AWS_ACCESS_KEY_ID", "")
+    AWS_SECRET_ACCESS_KEY = os.getenv("AWS_SECRET_ACCESS_KEY", "")
+    AWS_S3_ENDPOINT_URL = os.getenv("AWS_S3_ENDPOINT_URL", "").strip() or None
+    AWS_S3_REGION_NAME = os.getenv("AWS_S3_REGION_NAME", "").strip() or None
+    AWS_S3_CUSTOM_DOMAIN = os.getenv("AWS_S3_CUSTOM_DOMAIN", "").strip() or None
+    AWS_QUERYSTRING_AUTH = (
+        os.getenv("AWS_QUERYSTRING_AUTH", "False").lower()
+        in {"true", "1", "yes", "on"}
+    )
+    AWS_S3_FILE_OVERWRITE = False
+
+    STORAGES = {
+        "default": {
+            "BACKEND": "storages.backends.s3.S3Storage",
+            "OPTIONS": {
+                "bucket_name": AWS_STORAGE_BUCKET_NAME,
+                "endpoint_url": AWS_S3_ENDPOINT_URL,
+                "region_name": AWS_S3_REGION_NAME,
+                "custom_domain": AWS_S3_CUSTOM_DOMAIN,
+                "querystring_auth": AWS_QUERYSTRING_AUTH,
+                "file_overwrite": AWS_S3_FILE_OVERWRITE,
+                "location": os.getenv("AWS_S3_MEDIA_LOCATION", "media"),
+            },
+        },
+        "staticfiles": {
+            "BACKEND": (
+                "whitenoise.storage.CompressedManifestStaticFilesStorage"
+            ),
+        },
+    }
+
+    if AWS_S3_CUSTOM_DOMAIN:
+        MEDIA_URL = f"https://{AWS_S3_CUSTOM_DOMAIN}/"
+else:
+    STORAGES = {
+        "default": {
+            "BACKEND": "django.core.files.storage.FileSystemStorage",
+        },
+        "staticfiles": {
+            "BACKEND": (
+                "whitenoise.storage.CompressedManifestStaticFilesStorage"
+            ),
+        },
+    }
+
+
+# Error monitoring (optional).
+SENTRY_DSN = os.getenv("SENTRY_DSN", "").strip()
+
+if SENTRY_DSN:
+    try:
+        import sentry_sdk
+        from sentry_sdk.integrations.django import DjangoIntegration
+
+        sentry_sdk.init(
+            dsn=SENTRY_DSN,
+            integrations=[DjangoIntegration()],
+            environment=os.getenv("SENTRY_ENVIRONMENT", "production"),
+            release=os.getenv("SENTRY_RELEASE") or None,
+            traces_sample_rate=float(
+                os.getenv("SENTRY_TRACES_SAMPLE_RATE", "0")
+            ),
+            send_default_pii=False,
+        )
+    except ImportError:
+        pass
 
 
 # Production error logging: write Django errors to Render logs.

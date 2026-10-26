@@ -1,0 +1,4213 @@
+openapi: 3.0.3
+info:
+  title: Placewise Душанбе API
+  version: 1.0.0
+  description: |2
+
+    Placewise — API-и феҳристи ҷойҳои Душанбе.
+
+    **Тартиби гурӯҳҳо дар Swagger:**
+
+    1. **Public API** — Authentication, Profile, Categories, Places,
+       Search & Home, Reviews, Favorites, Claims, Notifications, Uploads.
+    2. **Owner API** — Owner - Places, Owner - Photos, Owner - Reviews.
+    3. **Admin API** — Admin - Authentication, Admin - Users, Admin - Categories,
+       Admin - Places, Admin - Claims, Admin - Reviews, Admin - Reports,
+       Admin - Imports.
+
+    Ҳар endpoint дорои тавсифи кӯтоҳ ва гурӯҳи муайян аст. Барои зуд ёфтани
+    API қуттии ҷустуҷӯ дар болои саҳифаро истифода баред.
+paths:
+  /api/v1/admin/categories/:
+    get:
+      operationId: admin_category_list
+      summary: Рӯйхати категорияҳо (админ)
+      tags:
+      - Admin - Categories
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/AdminCategory'
+          description: ''
+    post:
+      operationId: admin_category_create
+      summary: Сохтани категория
+      tags:
+      - Admin - Categories
+      requestBody:
+        content:
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/AdminCategoryRequest'
+        required: true
+      security:
+      - jwtAuth: []
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminCategory'
+          description: ''
+  /api/v1/admin/categories/{category_id}/:
+    get:
+      operationId: admin_category_detail
+      summary: Маълумоти категория (админ)
+      parameters:
+      - in: path
+        name: category_id
+        schema:
+          type: string
+          pattern: ^\d+$
+        required: true
+      tags:
+      - Admin - Categories
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminCategory'
+          description: ''
+    patch:
+      operationId: admin_category_update
+      summary: Таҳрири категория
+      parameters:
+      - in: path
+        name: category_id
+        schema:
+          type: string
+          pattern: ^\d+$
+        required: true
+      tags:
+      - Admin - Categories
+      requestBody:
+        content:
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/PatchedAdminCategoryRequest'
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminCategory'
+          description: ''
+    delete:
+      operationId: admin_category_delete
+      summary: Нест кардани категория
+      parameters:
+      - in: path
+        name: category_id
+        schema:
+          type: string
+          pattern: ^\d+$
+        required: true
+      tags:
+      - Admin - Categories
+      security:
+      - jwtAuth: []
+      responses:
+        '204':
+          description: No response body
+  /api/v1/admin/claims/:
+    get:
+      operationId: admin_claim_list
+      summary: Рӯйхати дархостҳои тасдиқи соҳиби ҷой
+      parameters:
+      - in: query
+        name: limit
+        schema:
+          type: integer
+      - in: query
+        name: page
+        schema:
+          type: integer
+      - in: query
+        name: status
+        schema:
+          type: string
+          enum:
+          - approved
+          - pending
+          - rejected
+        description: Филтр аз рӯйи ҳолати дархост
+      tags:
+      - Admin - Claims
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminClaimPaginatedResponse'
+          description: ''
+    post:
+      operationId: admin_claim_action
+      summary: Тасдиқ ё рад кардани дархости соҳиби ҷой
+      tags:
+      - Admin - Claims
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AdminClaimActionRequestRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/AdminClaimActionRequestRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/AdminClaimActionRequestRequest'
+        required: true
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: {}
+          description: ''
+        '400':
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: {}
+          description: ''
+        '404':
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: {}
+          description: ''
+  /api/v1/admin/import/2gis/:
+    post:
+      operationId: admin_import_2gis
+      description: Бор кардани файли CSV ва импорти ҷойҳо. Дастрасӣ танҳо барои маъмур.
+      summary: Импорти ҷойҳо аз 2GIS (CSV)
+      tags:
+      - Admin - Imports
+      requestBody:
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                file:
+                  type: string
+                  format: binary
+                category:
+                  type: string
+                source:
+                  type: string
+                dry_run:
+                  type: boolean
+              required:
+              - file
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: {}
+          description: ''
+        '400':
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: {}
+          description: ''
+        '413':
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: {}
+          description: ''
+  /api/v1/admin/photos/{photo_id}/:
+    patch:
+      operationId: v1_admin_photos_partial_update
+      summary: Таҳрири акси ҷой
+      parameters:
+      - in: path
+        name: photo_id
+        schema:
+          type: string
+          pattern: ^\d+$
+        required: true
+      tags:
+      - Admin - Places
+      requestBody:
+        content:
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/PatchedPlacePhotoRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/PatchedPlacePhotoRequest'
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlacePhoto'
+          description: ''
+        '204':
+          description: No response body
+    delete:
+      operationId: v1_admin_photos_destroy
+      summary: Нест кардани акси ҷой
+      parameters:
+      - in: path
+        name: photo_id
+        schema:
+          type: string
+          pattern: ^\d+$
+        required: true
+      tags:
+      - Admin - Places
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlacePhoto'
+          description: ''
+        '204':
+          description: No response body
+  /api/v1/admin/places/:
+    get:
+      operationId: v1_admin_places_retrieve
+      summary: Рӯйхати ҷойҳо (админ)
+      tags:
+      - Admin - Places
+      security:
+      - jwtAuth: []
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminPlace'
+          description: ''
+    post:
+      operationId: v1_admin_places_create
+      summary: Сохтани ҷой
+      tags:
+      - Admin - Places
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AdminPlaceRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/AdminPlaceRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/AdminPlaceRequest'
+        required: true
+      security:
+      - jwtAuth: []
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminPlace'
+          description: ''
+  /api/v1/admin/places/{place_id}/:
+    get:
+      operationId: admin_place_detail
+      summary: Маълумоти ҷой (админ)
+      parameters:
+      - in: path
+        name: place_id
+        schema:
+          type: string
+          pattern: ^\d+$
+        required: true
+      tags:
+      - Admin - Places
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminPlace'
+          description: ''
+    patch:
+      operationId: admin_place_update
+      summary: Таҳрири ҷой (админ)
+      parameters:
+      - in: path
+        name: place_id
+        schema:
+          type: string
+          pattern: ^\d+$
+        required: true
+      tags:
+      - Admin - Places
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PatchedAdminPlaceRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/PatchedAdminPlaceRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/PatchedAdminPlaceRequest'
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminPlace'
+          description: ''
+    delete:
+      operationId: admin_place_delete
+      summary: Нест кардани ҷой
+      parameters:
+      - in: path
+        name: place_id
+        schema:
+          type: string
+          pattern: ^\d+$
+        required: true
+      tags:
+      - Admin - Places
+      security:
+      - jwtAuth: []
+      responses:
+        '204':
+          description: No response body
+        '409':
+          description: Place has reviews
+  /api/v1/admin/places/{place_id}/hide/:
+    post:
+      operationId: v1_admin_places_hide_create
+      summary: Пинҳон кардани ҷой
+      parameters:
+      - in: path
+        name: place_id
+        schema:
+          type: string
+          pattern: ^\d+$
+        required: true
+      tags:
+      - Admin - Places
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminPlaceHideResponse'
+          description: ''
+  /api/v1/admin/places/{place_id}/photos/:
+    get:
+      operationId: v1_admin_places_photos_list
+      summary: Рӯйхати аксҳои ҷой (админ)
+      parameters:
+      - in: path
+        name: place_id
+        schema:
+          type: string
+          pattern: ^\d+$
+        required: true
+      tags:
+      - Admin - Places
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/PlacePhoto'
+          description: ''
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlacePhoto'
+          description: ''
+    post:
+      operationId: v1_admin_places_photos_create
+      summary: Илова кардани акс ба ҷой (админ)
+      parameters:
+      - in: path
+        name: place_id
+        schema:
+          type: string
+          pattern: ^\d+$
+        required: true
+      tags:
+      - Admin - Places
+      requestBody:
+        content:
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/PlacePhotoRequest'
+        required: true
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/PlacePhoto'
+          description: ''
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlacePhoto'
+          description: ''
+  /api/v1/admin/places/{place_id}/publish/:
+    post:
+      operationId: v1_admin_places_publish_create
+      description: Нашр кардани ҷой аз ҷониби администратор.
+      summary: Нашр кардани ҷой
+      parameters:
+      - in: path
+        name: place_id
+        schema:
+          type: string
+          pattern: ^\d+$
+        required: true
+      tags:
+      - Admin - Places
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminPlacePublishResponse'
+          description: ''
+  /api/v1/admin/reports/:
+    get:
+      operationId: v1_admin_reports_list
+      summary: Рӯйхати шикоятҳо
+      parameters:
+      - in: query
+        name: limit
+        schema:
+          type: integer
+      - in: query
+        name: page
+        schema:
+          type: integer
+      - in: query
+        name: page_size
+        schema:
+          type: integer
+      - in: query
+        name: status
+        schema:
+          type: string
+          enum:
+          - pending
+          - resolved
+      tags:
+      - Admin - Reports
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/ModerationReportsResponse'
+          description: ''
+  /api/v1/admin/reports/{report_id}/resolve/:
+    post:
+      operationId: v1_admin_reports_resolve_create
+      summary: Ҳал кардани шикоят
+      parameters:
+      - in: path
+        name: report_id
+        schema:
+          type: string
+          pattern: ^\d+$
+        required: true
+      tags:
+      - Admin - Reports
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ResolveReportResponse'
+          description: ''
+        '404':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ResolveReportNotFound'
+          description: ''
+  /api/v1/admin/reviews/:
+    get:
+      operationId: v1_admin_reviews_list
+      description: Рӯйхати отзывҳо барои модератор.
+      summary: Рӯйхати отзывҳо барои модератор
+      tags:
+      - Admin - Reviews
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Review'
+          description: ''
+  /api/v1/admin/reviews/{review_id}/approve/:
+    post:
+      operationId: v1_admin_reviews_approve_create
+      summary: Тасдиқи отзыв
+      parameters:
+      - in: path
+        name: review_id
+        schema:
+          type: string
+          pattern: ^\d+$
+        required: true
+      tags:
+      - Admin - Reviews
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: {}
+          description: ''
+  /api/v1/admin/reviews/{review_id}/reject/:
+    post:
+      operationId: v1_admin_reviews_reject_create
+      summary: Рад кардани отзыв
+      parameters:
+      - in: path
+        name: review_id
+        schema:
+          type: string
+          pattern: ^\d+$
+        required: true
+      tags:
+      - Admin - Reviews
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ModerateReviewRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/ModerateReviewRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/ModerateReviewRequest'
+        required: true
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: {}
+          description: ''
+        '400':
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: {}
+          description: ''
+        '404':
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: {}
+          description: ''
+  /api/v1/admin/users/:
+    get:
+      operationId: admin_users_list
+      summary: Рӯйхати корбарон
+      parameters:
+      - in: query
+        name: is_active
+        schema:
+          type: string
+          enum:
+          - 'false'
+          - 'true'
+      - in: query
+        name: is_blocked
+        schema:
+          type: string
+          enum:
+          - 'false'
+          - 'true'
+      - in: query
+        name: limit
+        schema:
+          type: integer
+      - in: query
+        name: page
+        schema:
+          type: integer
+      - in: query
+        name: page_size
+        schema:
+          type: integer
+      - in: query
+        name: role
+        schema:
+          type: string
+        description: Филтр аз рӯйи нақш
+      - in: query
+        name: search
+        schema:
+          type: string
+        description: Ҷустуҷӯ аз рӯйи телефон, ном ё username
+      tags:
+      - Admin - Users
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminUserPaginatedResponse'
+          description: ''
+    post:
+      operationId: admin_user_create
+      summary: Сохтани корбари нав
+      tags:
+      - Admin - Users
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AdminUserCreateRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/AdminUserCreateRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/AdminUserCreateRequest'
+        required: true
+      security:
+      - jwtAuth: []
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminUser'
+          description: ''
+  /api/v1/admin/users/{user_id}/:
+    get:
+      operationId: admin_user_detail_retrieve
+      summary: Гирифтани маълумоти корбар
+      parameters:
+      - in: path
+        name: user_id
+        schema:
+          type: string
+          pattern: ^\d+$
+        required: true
+      tags:
+      - Admin - Users
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminUser'
+          description: ''
+    patch:
+      operationId: admin_user_detail_update
+      summary: Тағйир додани маълумоти корбар
+      parameters:
+      - in: path
+        name: user_id
+        schema:
+          type: string
+          pattern: ^\d+$
+        required: true
+      tags:
+      - Admin - Users
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PatchedAdminUserRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/PatchedAdminUserRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/PatchedAdminUserRequest'
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminUser'
+          description: ''
+  /api/v1/admin/users/{user_id}/block/:
+    post:
+      operationId: admin_user_block
+      summary: Блок кардани корбар
+      parameters:
+      - in: path
+        name: user_id
+        schema:
+          type: string
+          pattern: ^\d+$
+        required: true
+      tags:
+      - Admin - Users
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminUserBlockResponse'
+          description: ''
+  /api/v1/admin/users/{user_id}/set-password/:
+    post:
+      operationId: admin_user_set_password
+      summary: Изменение пароля пользователя
+      parameters:
+      - in: path
+        name: user_id
+        schema:
+          type: string
+          pattern: ^\d+$
+        required: true
+      tags:
+      - Admin - Users
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AdminUserSetPasswordRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/AdminUserSetPasswordRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/AdminUserSetPasswordRequest'
+        required: true
+      security:
+      - jwtAuth: []
+      responses:
+        '204':
+          description: Пароль изменён.
+        '400':
+          description: Некорректный пароль.
+        '403':
+          description: Недостаточно прав.
+        '404':
+          description: Пользователь не найден.
+  /api/v1/admin/users/{user_id}/unblock/:
+    post:
+      operationId: admin_user_unblock
+      summary: Баровардани корбар аз блок
+      parameters:
+      - in: path
+        name: user_id
+        schema:
+          type: string
+          pattern: ^\d+$
+        required: true
+      tags:
+      - Admin - Users
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminUserUnblockResponse'
+          description: ''
+  /api/v1/auth/admin/login/:
+    post:
+      operationId: admin_login
+      summary: Вход администратора по телефону и паролю
+      tags:
+      - Admin - Authentication
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AdminLoginRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/AdminLoginRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/AdminLoginRequest'
+        required: true
+      security:
+      - jwtAuth: []
+      - {}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminLoginResponse'
+          description: ''
+        '400':
+          description: Телефон или пароль не передан.
+        '401':
+          description: Неверный телефон или пароль.
+        '403':
+          description: Нет доступа к админке.
+        '429':
+          description: Слишком много попыток входа.
+  /api/v1/auth/refresh/:
+    post:
+      operationId: v1_auth_refresh_create
+      description: |-
+        Takes a refresh type JSON web token and returns an access type JSON web
+        token if the refresh token is valid.
+      summary: Навсозии access token
+      tags:
+      - Authentication
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TokenRefreshRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/TokenRefreshRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/TokenRefreshRequest'
+        required: true
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TokenRefresh'
+          description: ''
+  /api/v1/auth/send-code/:
+    post:
+      operationId: v1_auth_send_code_create
+      summary: Дархости коди тасдиқ
+      tags:
+      - Authentication
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                phone:
+                  type: string
+                  example: '+992900123456'
+              required:
+              - phone
+      security:
+      - jwtAuth: []
+      - {}
+      responses:
+        '200':
+          description: No response body
+        '400':
+          description: No response body
+        '429':
+          description: No response body
+  /api/v1/auth/verify/:
+    post:
+      operationId: v1_auth_verify_create
+      summary: Тасдиқи коди воридшавӣ
+      tags:
+      - Authentication
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                phone:
+                  type: string
+                  example: '+992900123456'
+                code:
+                  type: string
+                  example: '0440'
+              required:
+              - phone
+              - code
+      security:
+      - jwtAuth: []
+      - {}
+      responses:
+        '200':
+          description: No response body
+        '400':
+          description: No response body
+        '403':
+          description: No response body
+        '429':
+          description: No response body
+  /api/v1/categories/:
+    get:
+      operationId: v1_categories_list
+      summary: Рӯйхати категорияҳо
+      parameters:
+      - in: query
+        name: lang
+        schema:
+          type: string
+          enum:
+          - en
+          - ru
+          - tg
+        description: 'Забони ҷавоби API: tg — тоҷикӣ, ru — русӣ, en — англисӣ'
+      tags:
+      - Categories
+      security:
+      - jwtAuth: []
+      - {}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Category'
+          description: ''
+  /api/v1/home/:
+    get:
+      operationId: home
+      summary: Маълумоти асосии саҳифаи хонагӣ
+      parameters:
+      - in: query
+        name: lang
+        schema:
+          type: string
+          enum:
+          - en
+          - ru
+          - tg
+        description: Забони ҷавоб
+      tags:
+      - Search & Home
+      security:
+      - jwtAuth: []
+      - {}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HomeResponse'
+          description: ''
+  /api/v1/me/:
+    get:
+      operationId: v1_me_retrieve
+      summary: Маълумоти профили корбар
+      tags:
+      - Profile
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserProfile'
+          description: ''
+    patch:
+      operationId: v1_me_partial_update
+      summary: Таҳрири профили корбар
+      tags:
+      - Profile
+      requestBody:
+        content:
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/PatchedUserProfileUpdateRequest'
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserProfile'
+          description: ''
+        '400':
+          description: No response body
+        '401':
+          description: No response body
+        '403':
+          description: No response body
+  /api/v1/me/favorites/:
+    get:
+      operationId: me_favorites_list
+      summary: Рӯйхати ҷойҳои дӯстдошта
+      tags:
+      - Favorites
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Favorite'
+          description: ''
+    post:
+      operationId: me_favorites_create
+      summary: Илова кардан ба дӯстдоштаҳо
+      tags:
+      - Favorites
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/FavoriteRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/FavoriteRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/FavoriteRequest'
+        required: true
+      security:
+      - jwtAuth: []
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Favorite'
+          description: ''
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Favorite'
+          description: ''
+    delete:
+      operationId: me_favorites_remove
+      summary: Нест кардан аз дӯстдоштаҳо
+      tags:
+      - Favorites
+      security:
+      - jwtAuth: []
+      responses:
+        '204':
+          description: No response body
+        '400':
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: {}
+          description: ''
+        '404':
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: {}
+          description: ''
+  /api/v1/notifications/:
+    get:
+      operationId: v1_notifications_retrieve
+      summary: Рӯйхати огоҳиномаҳо
+      tags:
+      - Notifications
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NotificationListResponse'
+          description: ''
+  /api/v1/notifications/{notification_id}/read/:
+    post:
+      operationId: v1_notifications_read_create
+      summary: Хондашуда кардани огоҳинома
+      parameters:
+      - in: path
+        name: notification_id
+        schema:
+          type: integer
+        required: true
+      tags:
+      - Notifications
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MarkNotificationReadResponse'
+          description: ''
+        '403':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MarkNotificationReadForbidden'
+          description: ''
+  /api/v1/notifications/read-all/:
+    post:
+      operationId: v1_notifications_read_all_create
+      summary: Хондашуда кардани ҳамаи огоҳиномаҳо
+      tags:
+      - Notifications
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MarkAllNotificationsReadResponse'
+          description: ''
+        '403':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MarkAllNotificationsReadForbidden'
+          description: ''
+  /api/v1/owner/photos/{photo_id}/:
+    patch:
+      operationId: owner_place_photo_update
+      summary: Таҳрири акси ҷой
+      parameters:
+      - in: path
+        name: photo_id
+        schema:
+          type: string
+          pattern: ^\d+$
+        required: true
+      tags:
+      - Owner - Photos
+      requestBody:
+        content:
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/PatchedPlacePhotoRequest'
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlacePhoto'
+          description: ''
+    delete:
+      operationId: owner_place_photo_delete
+      summary: Нест кардани акси ҷой
+      parameters:
+      - in: path
+        name: photo_id
+        schema:
+          type: string
+          pattern: ^\d+$
+        required: true
+      tags:
+      - Owner - Photos
+      security:
+      - jwtAuth: []
+      responses:
+        '204':
+          description: No response body
+  /api/v1/owner/places/:
+    get:
+      operationId: v1_owner_places_retrieve
+      description: Рӯйхати ҷойҳое, ки ба соҳиб тааллуқ доранд.
+      summary: Рӯйхати ҷойҳои соҳиби аккаунт
+      tags:
+      - Owner - Places
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OwnerPlacesResponse'
+          description: ''
+        '403':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OwnerPlacesForbiddenResponse'
+          description: ''
+  /api/v1/owner/places/{place_id}/:
+    patch:
+      operationId: v1_owner_places_partial_update
+      description: Таҳрири ҷойи худи соҳиб.
+      summary: Таҳрири ҷойи худ
+      parameters:
+      - in: path
+        name: place_id
+        schema:
+          type: string
+          pattern: ^\d+$
+        required: true
+      tags:
+      - Owner - Places
+      requestBody:
+        content:
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/PatchedOwnerPlaceUpdateRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/PatchedOwnerPlaceUpdateRequest'
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PatchedOwnerPlaceUpdateRequest'
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OwnerPlaceUpdateResponse'
+          description: ''
+        '403':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OwnerPlaceUpdateForbiddenResponse'
+          description: ''
+  /api/v1/owner/places/{place_id}/photos/:
+    get:
+      operationId: owner_place_photos_list
+      summary: Рӯйхати аксҳои ҷой
+      parameters:
+      - in: path
+        name: place_id
+        schema:
+          type: string
+          pattern: ^\d+$
+        required: true
+      tags:
+      - Owner - Photos
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/PlacePhoto'
+          description: ''
+    post:
+      operationId: owner_place_photos_create
+      summary: Илова кардани акс ба ҷой
+      parameters:
+      - in: path
+        name: place_id
+        schema:
+          type: string
+          pattern: ^\d+$
+        required: true
+      tags:
+      - Owner - Photos
+      requestBody:
+        content:
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/PlacePhotoRequest'
+        required: true
+      security:
+      - jwtAuth: []
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlacePhoto'
+          description: ''
+  /api/v1/owner/reviews/{review_id}/reply/:
+    post:
+      operationId: v1_owner_reviews_reply_create
+      description: Соҳиби ҷой ё админи ваколатдор ба отзыв ҷавоб медиҳад.
+      summary: Ҷавоб додан ба отзыв
+      parameters:
+      - in: path
+        name: review_id
+        schema:
+          type: string
+          pattern: ^\d+$
+        required: true
+      tags:
+      - Owner - Reviews
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/OwnerReviewReplyRequestRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/OwnerReviewReplyRequestRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/OwnerReviewReplyRequestRequest'
+        required: true
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OwnerReviewReplyResponse'
+          description: ''
+        '400':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OwnerReviewReplyBadRequest'
+          description: ''
+        '403':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OwnerReviewReplyForbidden'
+          description: ''
+  /api/v1/places/:
+    get:
+      operationId: place_list
+      summary: Рӯйхати ҷойҳо
+      parameters:
+      - in: query
+        name: category
+        schema:
+          type: string
+        description: Slug-и категория, масалан cafe
+      - in: query
+        name: district
+        schema:
+          type: string
+        description: Номи ноҳия
+      - in: query
+        name: lang
+        schema:
+          type: string
+          enum:
+          - en
+          - ru
+          - tg
+        description: 'Забони ҷавоб: tg — тоҷикӣ, ru — русӣ, en — англисӣ'
+      - in: query
+        name: lat
+        schema:
+          type: number
+          format: double
+        description: Арзи ҷуғрофӣ, масалан 38.5598
+      - in: query
+        name: limit
+        schema:
+          type: integer
+        description: Алиаси page_size, ҳадди аксар 100
+      - in: query
+        name: lon
+        schema:
+          type: number
+          format: double
+        description: Тӯли ҷуғрофӣ, масалан 68.7870
+      - in: query
+        name: min_rating
+        schema:
+          type: number
+          format: double
+        description: Рейтинги минималӣ аз 0 то 5
+      - in: query
+        name: open_now
+        schema:
+          type: boolean
+        description: 'Филтр: ҷой ҳоло кушода аст ё не'
+      - in: query
+        name: ordering
+        schema:
+          type: string
+          enum:
+          - -created_at
+          - -rating
+          - -reviews_count
+          - -slug
+          - created_at
+          - distance
+          - rating
+          - reviews_count
+          - slug
+        description: Тартиби навъбандӣ
+      - in: query
+        name: page
+        schema:
+          type: integer
+        description: Рақами саҳифа, аз 1 сар мешавад
+      - in: query
+        name: page_size
+        schema:
+          type: integer
+        description: Шумораи ҷойҳо дар як саҳифа, ҳадди аксар 100
+      - in: query
+        name: price
+        schema:
+          type: integer
+        description: Алиаси price_level
+      - in: query
+        name: price_level
+        schema:
+          type: integer
+        description: Сатҳи нарх аз 1 то 4
+      - in: query
+        name: q
+        schema:
+          type: string
+        description: Алиаси search
+      - in: query
+        name: radius
+        schema:
+          type: number
+          format: double
+        description: Радиуси ҷустуҷӯ бо метр; аз 100 то 100000
+      - in: query
+        name: radius_km
+        schema:
+          type: number
+          format: double
+        description: Радиуси ҷустуҷӯ бо километр; аз 0.1 то 100
+      - in: query
+        name: radius_m
+        schema:
+          type: number
+          format: double
+        description: Радиуси ҷустуҷӯ бо метр; аз 100 то 100000
+      - in: query
+        name: rating_min
+        schema:
+          type: number
+          format: double
+        description: Алиаси min_rating
+      - in: query
+        name: search
+        schema:
+          type: string
+        description: Ҷустуҷӯ аз рӯйи ном, суроға, slug ё ноҳия
+      - in: query
+        name: sort
+        schema:
+          type: string
+          enum:
+          - best
+          - distance
+          - rating
+          - reviews
+        description: Тартиби навъбандӣ аз рӯйи ТЗ
+      tags:
+      - Places
+      security:
+      - jwtAuth: []
+      - {}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlacePagination'
+          description: ''
+  /api/v1/places/{slug}/:
+    get:
+      operationId: place_detail
+      summary: Маълумоти ҷой
+      parameters:
+      - in: query
+        name: lang
+        schema:
+          type: string
+          enum:
+          - en
+          - ru
+          - tg
+        description: 'Забони ҷавоб: tg — тоҷикӣ, ru — русӣ, en — англисӣ'
+      - in: path
+        name: slug
+        schema:
+          type: string
+          pattern: ^[-a-zA-Z0-9_]+$
+        required: true
+      tags:
+      - Places
+      security:
+      - jwtAuth: []
+      - {}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceDetail'
+          description: ''
+  /api/v1/places/{slug}/claim/:
+    post:
+      operationId: v1_places_claim_create
+      summary: Эҷоди дархости тасдиқи соҳиби ҷой
+      parameters:
+      - in: path
+        name: slug
+        schema:
+          type: string
+          pattern: ^[-a-zA-Z0-9_]+$
+        required: true
+      tags:
+      - Claims
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ClaimCreateRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/ClaimCreateRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/ClaimCreateRequest'
+        required: true
+      security:
+      - jwtAuth: []
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Claim'
+          description: ''
+        '400':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ClaimCreateBadRequest'
+          description: ''
+        '403':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ClaimCreateForbidden'
+          description: ''
+  /api/v1/places/{slug}/reviews/:
+    get:
+      operationId: v1_places_reviews_list
+      description: Гирифтан ва фиристодани отзывҳои ҷой.
+      summary: Рӯйхати отзывҳои ҷой
+      parameters:
+      - in: path
+        name: slug
+        schema:
+          type: string
+          pattern: ^[-a-zA-Z0-9_]+$
+        required: true
+      tags:
+      - Reviews
+      security:
+      - jwtAuth: []
+      - {}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Review'
+          description: ''
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReviewCreateResponse'
+          description: ''
+    post:
+      operationId: v1_places_reviews_create
+      description: Гирифтан ва фиристодани отзывҳои ҷой.
+      summary: Сохтани отзыв
+      parameters:
+      - in: path
+        name: slug
+        schema:
+          type: string
+          pattern: ^[-a-zA-Z0-9_]+$
+        required: true
+      tags:
+      - Reviews
+      requestBody:
+        content:
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/ReviewCreateRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/ReviewCreateRequest'
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ReviewCreateRequest'
+        required: true
+      security:
+      - jwtAuth: []
+      - {}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Review'
+          description: ''
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReviewCreateResponse'
+          description: ''
+  /api/v1/places/{slug}/similar/:
+    get:
+      operationId: similar_places
+      summary: Ҷойҳои монанд
+      parameters:
+      - in: query
+        name: lang
+        schema:
+          type: string
+          enum:
+          - en
+          - ru
+          - tg
+        description: 'Забони ҷавоб: tg — тоҷикӣ, ru — русӣ, en — англисӣ'
+      - in: path
+        name: slug
+        schema:
+          type: string
+          pattern: ^[-a-zA-Z0-9_]+$
+        required: true
+      tags:
+      - Places
+      security:
+      - jwtAuth: []
+      - {}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SimilarPlacesResponse'
+          description: ''
+        '404':
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: {}
+          description: ''
+  /api/v1/places/map/:
+    get:
+      operationId: place_map
+      description: |-
+        Гирифтани ҷойҳо дар ҳудуди харита.
+        bbox = west,south,east,north
+      summary: Ҷойҳо дар харита
+      parameters:
+      - in: query
+        name: bbox
+        schema:
+          type: string
+        description: 'west,south,east,north. Мисол: 68.70,38.45,68.85,38.65'
+        required: true
+      - in: query
+        name: lang
+        schema:
+          type: string
+          enum:
+          - en
+          - ru
+          - tg
+        description: 'Забони ҷавоб: tg — тоҷикӣ, ru — русӣ, en — англисӣ'
+      tags:
+      - Places
+      security:
+      - jwtAuth: []
+      - {}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaceMapResponse'
+          description: ''
+        '400':
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: {}
+          description: ''
+  /api/v1/reviews/{review_id}/:
+    patch:
+      operationId: v1_reviews_partial_update
+      description: Таҳрир ё нест кардани отзыви худи корбар.
+      summary: Таҳрири отзыв
+      parameters:
+      - in: path
+        name: review_id
+        schema:
+          type: string
+          pattern: ^\d+$
+        required: true
+      tags:
+      - Reviews
+      requestBody:
+        content:
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/PatchedReviewUpdateRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/PatchedReviewUpdateRequest'
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PatchedReviewUpdateRequest'
+      security:
+      - jwtAuth: []
+      - {}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReviewUpdateResponse'
+          description: ''
+        '204':
+          description: No response body
+    delete:
+      operationId: v1_reviews_destroy
+      description: Таҳрир ё нест кардани отзыви худи корбар.
+      summary: Нест кардани отзыв
+      parameters:
+      - in: path
+        name: review_id
+        schema:
+          type: string
+          pattern: ^\d+$
+        required: true
+      tags:
+      - Reviews
+      security:
+      - jwtAuth: []
+      - {}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReviewUpdateResponse'
+          description: ''
+        '204':
+          description: No response body
+  /api/v1/reviews/{review_id}/like/:
+    post:
+      operationId: v1_reviews_like_create
+      description: Гузоштан ё гирифтани лайк.
+      summary: Лайк кардани отзыв
+      parameters:
+      - in: path
+        name: review_id
+        schema:
+          type: string
+          pattern: ^\d+$
+        required: true
+      tags:
+      - Reviews
+      security:
+      - jwtAuth: []
+      - {}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReviewLikeResponse'
+          description: ''
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReviewLikeCreatedResponse'
+          description: ''
+    delete:
+      operationId: v1_reviews_like_destroy
+      description: Гузоштан ё гирифтани лайк.
+      summary: Бекор кардани лайк
+      parameters:
+      - in: path
+        name: review_id
+        schema:
+          type: string
+          pattern: ^\d+$
+        required: true
+      tags:
+      - Reviews
+      security:
+      - jwtAuth: []
+      - {}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReviewLikeResponse'
+          description: ''
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReviewLikeCreatedResponse'
+          description: ''
+  /api/v1/reviews/{review_id}/photos/:
+    post:
+      operationId: v1_reviews_photos_create
+      summary: Бор кардани акси отзыв
+      parameters:
+      - in: path
+        name: review_id
+        schema:
+          type: string
+          pattern: ^\d+$
+        required: true
+      tags:
+      - Reviews
+      requestBody:
+        content:
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/ReviewPhotoUploadRequestRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/ReviewPhotoUploadRequestRequest'
+        required: true
+      security:
+      - jwtAuth: []
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReviewPhotoUploadResponse'
+          description: ''
+        '400':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReviewPhotoUploadError'
+          description: ''
+        '403':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReviewPhotoUploadForbidden'
+          description: ''
+        '404':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReviewPhotoUploadNotFound'
+          description: ''
+  /api/v1/reviews/{review_id}/photos/{photo_id}/:
+    delete:
+      operationId: v1_reviews_photos_destroy
+      summary: Нест кардани акси отзыв
+      parameters:
+      - in: path
+        name: photo_id
+        schema:
+          type: string
+          pattern: ^\d+$
+        required: true
+      - in: path
+        name: review_id
+        schema:
+          type: string
+          pattern: ^\d+$
+        required: true
+      tags:
+      - Reviews
+      security:
+      - jwtAuth: []
+      responses:
+        '204':
+          description: No response body
+        '403':
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: {}
+          description: ''
+        '404':
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: {}
+          description: ''
+  /api/v1/reviews/{review_id}/report/:
+    post:
+      operationId: v1_reviews_report_create
+      description: Шикоят аз отзыви нашршуда.
+      summary: Шикоят аз отзыв
+      parameters:
+      - in: path
+        name: review_id
+        schema:
+          type: string
+          pattern: ^\d+$
+        required: true
+      tags:
+      - Reviews
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ReviewReportRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/ReviewReportRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/ReviewReportRequest'
+        required: true
+      security:
+      - jwtAuth: []
+      - {}
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReviewReportResponse'
+          description: ''
+  /api/v1/search/suggest/:
+    get:
+      operationId: search_suggest
+      summary: Пешниҳодҳои ҷустуҷӯ
+      parameters:
+      - in: query
+        name: lang
+        schema:
+          type: string
+          enum:
+          - en
+          - ru
+          - tg
+        description: Забони ҷавоб
+      - in: query
+        name: q
+        schema:
+          type: string
+        description: Матни ҷустуҷӯ
+        required: true
+      tags:
+      - Search & Home
+      security:
+      - jwtAuth: []
+      - {}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: {}
+          description: ''
+  /api/v1/uploads/:
+    post:
+      operationId: v1_uploads_create
+      description: JPG, PNG ё WebP, андозаи максималӣ 10 MB.
+      summary: Бор кардани акс
+      tags:
+      - Uploads
+      requestBody:
+        content:
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/UploadImageRequestRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/UploadImageRequestRequest'
+        required: true
+      security:
+      - jwtAuth: []
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UploadImageResponse'
+          description: ''
+        '400':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UploadImageError'
+          description: ''
+components:
+  schemas:
+    ActionEnum:
+      enum:
+      - approve
+      - reject
+      type: string
+      description: |-
+        * `approve` - approve
+        * `reject` - reject
+    AdminCategory:
+      type: object
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        name: {}
+        slug:
+          type: string
+          maxLength: 150
+          pattern: ^[-a-zA-Z0-9_]+$
+        key:
+          type: string
+          maxLength: 150
+          pattern: ^[-a-zA-Z0-9_]+$
+        image:
+          type: string
+          format: uri
+          nullable: true
+        icon:
+          type: string
+          maxLength: 100
+        is_active:
+          type: boolean
+        sort_order:
+          type: integer
+          maximum: 2147483647
+          minimum: 0
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+      required:
+      - created_at
+      - id
+      - key
+      - slug
+    AdminCategoryRequest:
+      type: object
+      properties:
+        name: {}
+        slug:
+          type: string
+          minLength: 1
+          maxLength: 150
+          pattern: ^[-a-zA-Z0-9_]+$
+        key:
+          type: string
+          minLength: 1
+          maxLength: 150
+          pattern: ^[-a-zA-Z0-9_]+$
+        image:
+          type: string
+          format: binary
+          nullable: true
+        icon:
+          type: string
+          maxLength: 100
+        is_active:
+          type: boolean
+        sort_order:
+          type: integer
+          maximum: 2147483647
+          minimum: 0
+      required:
+      - key
+      - slug
+    AdminClaimActionRequestRequest:
+      type: object
+      properties:
+        claim_id:
+          type: integer
+        action:
+          $ref: '#/components/schemas/ActionEnum'
+        reason:
+          type: string
+      required:
+      - action
+      - claim_id
+    AdminClaimPaginatedResponse:
+      type: object
+      properties:
+        count:
+          type: integer
+        next:
+          type: string
+          format: uri
+          nullable: true
+        previous:
+          type: string
+          format: uri
+          nullable: true
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/Claim'
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/Claim'
+        total:
+          type: integer
+        page:
+          type: integer
+        limit:
+          type: integer
+      required:
+      - count
+      - items
+      - limit
+      - next
+      - page
+      - previous
+      - results
+      - total
+    AdminLoginRequest:
+      type: object
+      properties:
+        phone:
+          type: string
+          minLength: 1
+          maxLength: 20
+        password:
+          type: string
+          writeOnly: true
+          minLength: 1
+          maxLength: 128
+      required:
+      - password
+      - phone
+    AdminLoginResponse:
+      type: object
+      properties:
+        access:
+          type: string
+        refresh:
+          type: string
+        user:
+          $ref: '#/components/schemas/AdminLoginUser'
+      required:
+      - access
+      - refresh
+      - user
+    AdminLoginUser:
+      type: object
+      properties:
+        id:
+          type: integer
+        phone:
+          type: string
+        name:
+          type: string
+        role:
+          type: string
+        is_staff:
+          type: boolean
+        is_superuser:
+          type: boolean
+      required:
+      - id
+      - is_staff
+      - is_superuser
+      - name
+      - phone
+      - role
+    AdminPlace:
+      type: object
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        name: {}
+        slug:
+          type: string
+          maxLength: 250
+          pattern: ^[-a-zA-Z0-9_]+$
+        category:
+          type: integer
+        brand:
+          type: integer
+          nullable: true
+        subcategory: {}
+        address: {}
+        district:
+          type: string
+          maxLength: 150
+        location:
+          type: object
+          properties:
+            type:
+              type: string
+              enum:
+              - Point
+            coordinates:
+              type: array
+              items:
+                type: number
+                format: float
+              example:
+              - 12.9721
+              - 77.5933
+              minItems: 2
+              maxItems: 3
+          nullable: true
+        about: {}
+        phones: {}
+        website:
+          oneOf:
+          - type: string
+            format: uri
+            maxLength: 500
+          - type: string
+            maxLength: 0
+        opening_hours: {}
+        price_level:
+          type: integer
+          maximum: 32767
+          minimum: 0
+          nullable: true
+        status:
+          $ref: '#/components/schemas/PlaceStatusTz'
+        status_tz:
+          $ref: '#/components/schemas/PlaceStatusTz'
+        status_internal:
+          type: string
+          readOnly: true
+        source:
+          type: string
+          default: ''
+          maxLength: 50
+        source_id:
+          type: string
+          default: ''
+          maxLength: 200
+        rating:
+          type: number
+          format: double
+          maximum: 10
+          minimum: -10
+          exclusiveMaximum: true
+          exclusiveMinimum: true
+          readOnly: true
+        reviews_count:
+          type: integer
+          readOnly: true
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+        updated_at:
+          type: string
+          format: date-time
+          readOnly: true
+      required:
+      - category
+      - created_at
+      - id
+      - rating
+      - reviews_count
+      - slug
+      - status_internal
+      - updated_at
+    AdminPlaceHideResponse:
+      type: object
+      properties:
+        detail:
+          type: string
+        id:
+          type: integer
+        name:
+          type: string
+        status:
+          type: string
+      required:
+      - detail
+    AdminPlacePublishResponse:
+      type: object
+      properties:
+        detail:
+          type: string
+        id:
+          type: integer
+        name:
+          type: string
+        status:
+          type: string
+      required:
+      - detail
+    AdminPlaceRequest:
+      type: object
+      properties:
+        name: {}
+        slug:
+          type: string
+          minLength: 1
+          maxLength: 250
+          pattern: ^[-a-zA-Z0-9_]+$
+        category:
+          type: integer
+        brand:
+          type: integer
+          nullable: true
+        subcategory: {}
+        address: {}
+        district:
+          type: string
+          maxLength: 150
+        location:
+          type: object
+          properties:
+            type:
+              type: string
+              enum:
+              - Point
+            coordinates:
+              type: array
+              items:
+                type: number
+                format: float
+              example:
+              - 12.9721
+              - 77.5933
+              minItems: 2
+              maxItems: 3
+          nullable: true
+        about: {}
+        phones: {}
+        website:
+          oneOf:
+          - type: string
+            format: uri
+            maxLength: 500
+          - type: string
+            maxLength: 0
+        opening_hours: {}
+        price_level:
+          type: integer
+          maximum: 32767
+          minimum: 0
+          nullable: true
+        status:
+          $ref: '#/components/schemas/PlaceStatusTz'
+        status_tz:
+          $ref: '#/components/schemas/PlaceStatusTz'
+        source:
+          type: string
+          default: ''
+          maxLength: 50
+        source_id:
+          type: string
+          default: ''
+          maxLength: 200
+      required:
+      - category
+      - slug
+    AdminUser:
+      type: object
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        phone:
+          type: string
+          readOnly: true
+          title: Телефон
+        name:
+          type: string
+          title: Имя
+          maxLength: 150
+        language:
+          $ref: '#/components/schemas/UserLanguage'
+        lang:
+          type: string
+          readOnly: true
+        role:
+          $ref: '#/components/schemas/RoleEnum'
+        is_blocked:
+          type: boolean
+          title: Заблокирован
+        is_active:
+          type: boolean
+          title: Active
+          description: Designates whether this user should be treated as active. Unselect
+            this instead of deleting accounts.
+        is_staff:
+          type: boolean
+          readOnly: true
+          title: Staff status
+          description: Designates whether the user can log into this admin site.
+        is_superuser:
+          type: boolean
+          readOnly: true
+          title: Superuser status
+          description: Designates that this user has all permissions without explicitly
+            assigning them.
+        date_joined:
+          type: string
+          format: date-time
+          readOnly: true
+        last_login:
+          type: string
+          format: date-time
+          readOnly: true
+          nullable: true
+      required:
+      - date_joined
+      - id
+      - is_staff
+      - is_superuser
+      - lang
+      - last_login
+      - phone
+    AdminUserBlockResponse:
+      type: object
+      properties:
+        id:
+          type: integer
+        phone:
+          type: string
+        is_blocked:
+          type: boolean
+        detail:
+          type: string
+      required:
+      - detail
+      - id
+      - is_blocked
+      - phone
+    AdminUserCreateRequest:
+      type: object
+      properties:
+        phone:
+          type: string
+          minLength: 1
+          maxLength: 20
+        password:
+          type: string
+          writeOnly: true
+          minLength: 1
+          maxLength: 128
+        name:
+          type: string
+          maxLength: 150
+        role:
+          allOf:
+          - $ref: '#/components/schemas/RoleEnum'
+          default: user
+        language:
+          allOf:
+          - $ref: '#/components/schemas/UserLanguage'
+          default: ru
+        lang:
+          $ref: '#/components/schemas/UserLanguage'
+      required:
+      - phone
+    AdminUserPaginatedResponse:
+      type: object
+      properties:
+        count:
+          type: integer
+        next:
+          type: string
+          format: uri
+          nullable: true
+        previous:
+          type: string
+          format: uri
+          nullable: true
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/AdminUser'
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/AdminUser'
+        total:
+          type: integer
+        page:
+          type: integer
+        limit:
+          type: integer
+      required:
+      - count
+      - items
+      - limit
+      - next
+      - page
+      - previous
+      - results
+      - total
+    AdminUserSetPasswordRequest:
+      type: object
+      properties:
+        new_password:
+          type: string
+          writeOnly: true
+          minLength: 1
+          maxLength: 128
+      required:
+      - new_password
+    AdminUserUnblockResponse:
+      type: object
+      properties:
+        id:
+          type: integer
+        phone:
+          type: string
+        is_blocked:
+          type: boolean
+        detail:
+          type: string
+      required:
+      - detail
+      - id
+      - is_blocked
+      - phone
+    BlankEnum:
+      enum:
+      - ''
+    Brand:
+      type: object
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        name:
+          type: string
+          readOnly: true
+        slug:
+          type: string
+          maxLength: 200
+          pattern: ^[-a-zA-Z0-9_]+$
+        branches:
+          type: integer
+          readOnly: true
+        branches_count:
+          type: integer
+          maximum: 2147483647
+          minimum: 0
+        logo:
+          type: string
+          format: uri
+          nullable: true
+        website:
+          oneOf:
+          - type: string
+            format: uri
+            maxLength: 500
+          - type: string
+            maxLength: 0
+        instagram:
+          oneOf:
+          - type: string
+            format: uri
+            maxLength: 500
+          - type: string
+            maxLength: 0
+      required:
+      - branches
+      - id
+      - name
+      - slug
+    Category:
+      type: object
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        name:
+          type: string
+          readOnly: true
+        key:
+          type: string
+          maxLength: 150
+          pattern: ^[-a-zA-Z0-9_]+$
+        slug:
+          type: string
+          maxLength: 150
+          pattern: ^[-a-zA-Z0-9_]+$
+        icon:
+          type: string
+          maxLength: 100
+        image:
+          type: string
+          format: uri
+          nullable: true
+        place_count:
+          type: integer
+          readOnly: true
+        sort:
+          type: integer
+          readOnly: true
+        sort_order:
+          type: integer
+          maximum: 2147483647
+          minimum: 0
+      required:
+      - id
+      - key
+      - name
+      - place_count
+      - slug
+      - sort
+    Claim:
+      type: object
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        place:
+          type: integer
+          readOnly: true
+        place_slug:
+          type: string
+          readOnly: true
+        user:
+          type: integer
+          readOnly: true
+        user_phone:
+          type: string
+          readOnly: true
+        document_url:
+          type: string
+          format: uri
+          readOnly: true
+        status:
+          allOf:
+          - $ref: '#/components/schemas/ClaimStatus'
+          readOnly: true
+          default: pending
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+      required:
+      - created_at
+      - document_url
+      - id
+      - place
+      - place_slug
+      - status
+      - user
+      - user_phone
+    ClaimCreateBadRequest:
+      type: object
+      properties:
+        detail:
+          type: string
+      required:
+      - detail
+    ClaimCreateForbidden:
+      type: object
+      properties:
+        detail:
+          type: string
+      required:
+      - detail
+    ClaimCreateRequest:
+      type: object
+      properties:
+        place:
+          type: integer
+        document_url:
+          type: string
+          format: uri
+          minLength: 1
+          maxLength: 1000
+      required:
+      - document_url
+      - place
+    ClaimStatus:
+      enum:
+      - pending
+      - approved
+      - rejected
+      type: string
+      description: |-
+        * `pending` - Дар интизорӣ
+        * `approved` - Тасдиқ шуд
+        * `rejected` - Рад шуд
+    Favorite:
+      type: object
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        place:
+          type: integer
+        place_name:
+          type: string
+          readOnly: true
+        place_slug:
+          type: string
+          readOnly: true
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+      required:
+      - created_at
+      - id
+      - place
+      - place_name
+      - place_slug
+    FavoriteRequest:
+      type: object
+      properties:
+        place:
+          type: integer
+      required:
+      - place
+    HomeResponse:
+      type: object
+      properties:
+        popular_places:
+          type: array
+          items:
+            $ref: '#/components/schemas/PlaceList'
+        categories:
+          type: array
+          items:
+            $ref: '#/components/schemas/Category'
+        recent_reviews:
+          type: array
+          items:
+            $ref: '#/components/schemas/Review'
+        places_count:
+          type: integer
+        categories_count:
+          type: integer
+      required:
+      - categories
+      - categories_count
+      - places_count
+      - popular_places
+      - recent_reviews
+    MarkAllNotificationsReadForbidden:
+      type: object
+      properties:
+        detail:
+          type: string
+      required:
+      - detail
+    MarkAllNotificationsReadResponse:
+      type: object
+      properties:
+        detail:
+          type: string
+        updated_count:
+          type: integer
+      required:
+      - detail
+      - updated_count
+    MarkNotificationReadForbidden:
+      type: object
+      properties:
+        detail:
+          type: string
+      required:
+      - detail
+    MarkNotificationReadResponse:
+      type: object
+      properties:
+        detail:
+          type: string
+        id:
+          type: integer
+        is_read:
+          type: boolean
+      required:
+      - detail
+      - id
+      - is_read
+    ModerateReviewRequest:
+      type: object
+      properties:
+        action:
+          $ref: '#/components/schemas/ActionEnum'
+        reason:
+          type: string
+      required:
+      - action
+    ModerationReportsResponse:
+      type: object
+      properties:
+        id:
+          type: integer
+        review_id:
+          type: integer
+        place_name: {}
+        reporter_id:
+          type: integer
+        reason:
+          type: string
+        status:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+      required:
+      - created_at
+      - id
+      - place_name
+      - reason
+      - reporter_id
+      - review_id
+      - status
+    Notification:
+      type: object
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        notification_type:
+          allOf:
+          - $ref: '#/components/schemas/NotificationTypeEnum'
+          readOnly: true
+        title:
+          type: string
+          readOnly: true
+        message:
+          type: string
+          readOnly: true
+        review:
+          type: integer
+          readOnly: true
+          nullable: true
+        is_read:
+          type: boolean
+          readOnly: true
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+      required:
+      - created_at
+      - id
+      - is_read
+      - message
+      - notification_type
+      - review
+      - title
+    NotificationListResponse:
+      type: object
+      properties:
+        unread_count:
+          type: integer
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/Notification'
+      required:
+      - results
+      - unread_count
+    NotificationTypeEnum:
+      enum:
+      - review_approved
+      - review_rejected
+      - owner_reply
+      type: string
+      description: |-
+        * `review_approved` - Отзыв нашр шуд
+        * `review_rejected` - Отзыв рад шуд
+        * `owner_reply` - Ҷавоби соҳиби ҷой
+    OwnerPlaceUpdateForbiddenResponse:
+      type: object
+      properties:
+        detail:
+          type: string
+      required:
+      - detail
+    OwnerPlaceUpdateResponse:
+      type: object
+      properties:
+        detail:
+          type: string
+        place:
+          $ref: '#/components/schemas/PlaceDetail'
+      required:
+      - detail
+      - place
+    OwnerPlacesForbiddenResponse:
+      type: object
+      properties:
+        detail:
+          type: string
+      required:
+      - detail
+    OwnerPlacesResponse:
+      type: object
+      properties:
+        count:
+          type: integer
+        next:
+          type: string
+          format: uri
+          nullable: true
+        previous:
+          type: string
+          format: uri
+          nullable: true
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/PlaceDetail'
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/PlaceDetail'
+        total:
+          type: integer
+        page:
+          type: integer
+        limit:
+          type: integer
+      required:
+      - count
+      - items
+      - limit
+      - next
+      - page
+      - previous
+      - results
+      - total
+    OwnerReviewReplyBadRequest:
+      type: object
+      properties:
+        detail:
+          type: string
+      required:
+      - detail
+    OwnerReviewReplyForbidden:
+      type: object
+      properties:
+        detail:
+          type: string
+      required:
+      - detail
+    OwnerReviewReplyRequestRequest:
+      type: object
+      properties:
+        reply:
+          type: string
+          minLength: 1
+      required:
+      - reply
+    OwnerReviewReplyResponse:
+      type: object
+      properties:
+        detail:
+          type: string
+        review_id:
+          type: integer
+        owner_reply:
+          type: string
+        owner_reply_at:
+          type: string
+          format: date-time
+          nullable: true
+      required:
+      - detail
+      - owner_reply
+      - owner_reply_at
+      - review_id
+    PatchedAdminCategoryRequest:
+      type: object
+      properties:
+        name: {}
+        slug:
+          type: string
+          minLength: 1
+          maxLength: 150
+          pattern: ^[-a-zA-Z0-9_]+$
+        key:
+          type: string
+          minLength: 1
+          maxLength: 150
+          pattern: ^[-a-zA-Z0-9_]+$
+        image:
+          type: string
+          format: binary
+          nullable: true
+        icon:
+          type: string
+          maxLength: 100
+        is_active:
+          type: boolean
+        sort_order:
+          type: integer
+          maximum: 2147483647
+          minimum: 0
+    PatchedAdminPlaceRequest:
+      type: object
+      properties:
+        name: {}
+        slug:
+          type: string
+          minLength: 1
+          maxLength: 250
+          pattern: ^[-a-zA-Z0-9_]+$
+        category:
+          type: integer
+        brand:
+          type: integer
+          nullable: true
+        subcategory: {}
+        address: {}
+        district:
+          type: string
+          maxLength: 150
+        location:
+          type: object
+          properties:
+            type:
+              type: string
+              enum:
+              - Point
+            coordinates:
+              type: array
+              items:
+                type: number
+                format: float
+              example:
+              - 12.9721
+              - 77.5933
+              minItems: 2
+              maxItems: 3
+          nullable: true
+        about: {}
+        phones: {}
+        website:
+          oneOf:
+          - type: string
+            format: uri
+            maxLength: 500
+          - type: string
+            maxLength: 0
+        opening_hours: {}
+        price_level:
+          type: integer
+          maximum: 32767
+          minimum: 0
+          nullable: true
+        status:
+          $ref: '#/components/schemas/PlaceStatusTz'
+        status_tz:
+          $ref: '#/components/schemas/PlaceStatusTz'
+        source:
+          type: string
+          default: ''
+          maxLength: 50
+        source_id:
+          type: string
+          default: ''
+          maxLength: 200
+    PatchedAdminUserRequest:
+      type: object
+      properties:
+        name:
+          type: string
+          title: Имя
+          maxLength: 150
+        language:
+          $ref: '#/components/schemas/UserLanguage'
+        role:
+          $ref: '#/components/schemas/RoleEnum'
+        is_blocked:
+          type: boolean
+          title: Заблокирован
+        is_active:
+          type: boolean
+          title: Active
+          description: Designates whether this user should be treated as active. Unselect
+            this instead of deleting accounts.
+    PatchedOwnerPlaceUpdateRequest:
+      type: object
+      properties:
+        about: {}
+        phones: {}
+        phone:
+          type: string
+          writeOnly: true
+          minLength: 1
+        website:
+          oneOf:
+          - type: string
+            format: uri
+            maxLength: 500
+          - type: string
+            maxLength: 0
+        opening_hours: {}
+        hours:
+          writeOnly: true
+        photos:
+          type: array
+          items:
+            type: string
+            format: binary
+          writeOnly: true
+        remove_photo_ids:
+          type: array
+          items:
+            type: integer
+          writeOnly: true
+    PatchedPlacePhotoRequest:
+      type: object
+      properties:
+        image:
+          type: string
+          format: binary
+        alt: {}
+        source:
+          oneOf:
+          - $ref: '#/components/schemas/SourceEnum'
+          - $ref: '#/components/schemas/BlankEnum'
+        credit:
+          type: string
+          maxLength: 255
+        sort_order:
+          type: integer
+          maximum: 2147483647
+          minimum: 0
+        is_cover:
+          type: boolean
+    PatchedReviewUpdateRequest:
+      type: object
+      properties:
+        rating:
+          type: integer
+          maximum: 5
+          minimum: 1
+        text:
+          type: string
+          minLength: 1
+          maxLength: 2000
+        lang:
+          allOf:
+          - $ref: '#/components/schemas/ReviewLang'
+          title: Забони отзыв
+        photos:
+          type: array
+          items:
+            type: string
+            format: binary
+          writeOnly: true
+          maxItems: 5
+        remove_photo_ids:
+          type: array
+          items:
+            type: integer
+          writeOnly: true
+    PatchedUserProfileUpdateRequest:
+      type: object
+      properties:
+        name:
+          type: string
+          title: Имя
+          maxLength: 150
+        language:
+          $ref: '#/components/schemas/UserLanguage'
+        lang:
+          $ref: '#/components/schemas/UserLanguage'
+        avatar:
+          type: string
+          format: binary
+    PlaceDetail:
+      type: object
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        name:
+          type: string
+          readOnly: true
+        slug:
+          type: string
+          maxLength: 250
+          pattern: ^[-a-zA-Z0-9_]+$
+        category:
+          allOf:
+          - $ref: '#/components/schemas/Category'
+          readOnly: true
+        brand:
+          allOf:
+          - $ref: '#/components/schemas/Brand'
+          readOnly: true
+        subcategory:
+          type: string
+          readOnly: true
+        address:
+          type: string
+          readOnly: true
+        district:
+          type: string
+          maxLength: 150
+        lat:
+          type: number
+          format: double
+          nullable: true
+          readOnly: true
+        lon:
+          type: number
+          format: double
+          nullable: true
+          readOnly: true
+        location:
+          type: object
+          properties:
+            type:
+              type: string
+              enum:
+              - Point
+            coordinates:
+              type: array
+              items:
+                type: number
+                format: float
+              example:
+              - 12.9721
+              - 77.5933
+              minItems: 2
+              maxItems: 3
+          readOnly: true
+        rating:
+          type: number
+          format: double
+          maximum: 10
+          minimum: -10
+          exclusiveMaximum: true
+          exclusiveMinimum: true
+          readOnly: true
+        reviews_count:
+          type: integer
+          maximum: 2147483647
+          minimum: 0
+        price:
+          type: integer
+          readOnly: true
+        price_level:
+          type: integer
+          maximum: 32767
+          minimum: 0
+          nullable: true
+        status:
+          allOf:
+          - $ref: '#/components/schemas/PlaceStatusTz'
+          readOnly: true
+        status_tz:
+          allOf:
+          - $ref: '#/components/schemas/PlaceStatusTz'
+          readOnly: true
+        status_internal:
+          type: string
+          readOnly: true
+        about:
+          type: string
+          readOnly: true
+        phones: {}
+        website:
+          oneOf:
+          - type: string
+            format: uri
+            maxLength: 500
+          - type: string
+            maxLength: 0
+        opening_hours:
+          type: string
+          readOnly: true
+        hours:
+          nullable: true
+          readOnly: true
+        hours_text:
+          type: string
+          readOnly: true
+        open_now:
+          type: boolean
+          nullable: true
+          readOnly: true
+        is_favorite:
+          type: boolean
+          readOnly: true
+        ext_rating:
+          type: number
+          format: double
+          maximum: 10
+          minimum: -10
+          exclusiveMaximum: true
+          exclusiveMinimum: true
+          readOnly: true
+          nullable: true
+        ext_reviews:
+          type: integer
+          maximum: 2147483647
+          minimum: 0
+        photos:
+          type: array
+          items:
+            $ref: '#/components/schemas/PlacePhoto'
+          readOnly: true
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+        updated_at:
+          type: string
+          format: date-time
+          readOnly: true
+      required:
+      - about
+      - address
+      - brand
+      - category
+      - created_at
+      - ext_rating
+      - hours
+      - hours_text
+      - id
+      - is_favorite
+      - lat
+      - location
+      - lon
+      - name
+      - open_now
+      - opening_hours
+      - photos
+      - price
+      - rating
+      - slug
+      - status
+      - status_internal
+      - status_tz
+      - subcategory
+      - updated_at
+    PlaceList:
+      type: object
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        name:
+          type: string
+          readOnly: true
+        slug:
+          type: string
+          maxLength: 250
+          pattern: ^[-a-zA-Z0-9_]+$
+        category:
+          allOf:
+          - $ref: '#/components/schemas/Category'
+          readOnly: true
+        brand:
+          allOf:
+          - $ref: '#/components/schemas/Brand'
+          readOnly: true
+        subcategory:
+          type: string
+          readOnly: true
+        address:
+          type: string
+          readOnly: true
+        district:
+          type: string
+          maxLength: 150
+        lat:
+          type: number
+          format: double
+          nullable: true
+          readOnly: true
+        lon:
+          type: number
+          format: double
+          nullable: true
+          readOnly: true
+        location:
+          type: object
+          properties:
+            type:
+              type: string
+              enum:
+              - Point
+            coordinates:
+              type: array
+              items:
+                type: number
+                format: float
+              example:
+              - 12.9721
+              - 77.5933
+              minItems: 2
+              maxItems: 3
+          readOnly: true
+        rating:
+          type: number
+          format: double
+          maximum: 10
+          minimum: -10
+          exclusiveMaximum: true
+          exclusiveMinimum: true
+          readOnly: true
+        reviews_count:
+          type: integer
+          maximum: 2147483647
+          minimum: 0
+        price:
+          type: integer
+          readOnly: true
+        price_level:
+          type: integer
+          maximum: 32767
+          minimum: 0
+          nullable: true
+        status:
+          allOf:
+          - $ref: '#/components/schemas/PlaceStatusTz'
+          readOnly: true
+        status_tz:
+          allOf:
+          - $ref: '#/components/schemas/PlaceStatusTz'
+          readOnly: true
+        status_internal:
+          type: string
+          readOnly: true
+      required:
+      - address
+      - brand
+      - category
+      - id
+      - lat
+      - location
+      - lon
+      - name
+      - price
+      - rating
+      - slug
+      - status
+      - status_internal
+      - status_tz
+      - subcategory
+    PlaceMapPoint:
+      type: object
+      properties:
+        slug:
+          type: string
+          maxLength: 250
+          pattern: ^[-a-zA-Z0-9_]+$
+        name:
+          type: string
+          readOnly: true
+        lat:
+          type: number
+          format: double
+          nullable: true
+          readOnly: true
+        lon:
+          type: number
+          format: double
+          nullable: true
+          readOnly: true
+        rating:
+          type: number
+          format: double
+          maximum: 10
+          minimum: -10
+          exclusiveMaximum: true
+          exclusiveMinimum: true
+          readOnly: true
+      required:
+      - lat
+      - lon
+      - name
+      - rating
+      - slug
+    PlaceMapResponse:
+      type: object
+      properties:
+        count:
+          type: integer
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/PlaceMapPoint'
+      required:
+      - count
+      - results
+    PlacePagination:
+      type: object
+      properties:
+        count:
+          type: integer
+        next:
+          type: string
+          format: uri
+          nullable: true
+        previous:
+          type: string
+          format: uri
+          nullable: true
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/PlaceList'
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/PlaceList'
+        total:
+          type: integer
+        page:
+          type: integer
+        limit:
+          type: integer
+      required:
+      - count
+      - items
+      - limit
+      - next
+      - page
+      - previous
+      - results
+      - total
+    PlacePhoto:
+      type: object
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        url:
+          type: string
+          format: uri
+          readOnly: true
+        image:
+          type: string
+          format: uri
+        thumbnail:
+          type: string
+          format: uri
+          nullable: true
+          readOnly: true
+        alt: {}
+        author_id:
+          type: integer
+          nullable: true
+          readOnly: true
+        source:
+          oneOf:
+          - $ref: '#/components/schemas/SourceEnum'
+          - $ref: '#/components/schemas/BlankEnum'
+        credit:
+          type: string
+          maxLength: 255
+        sort:
+          type: integer
+          readOnly: true
+        sort_order:
+          type: integer
+          maximum: 2147483647
+          minimum: 0
+        is_cover:
+          type: boolean
+      required:
+      - author_id
+      - id
+      - image
+      - sort
+      - thumbnail
+      - url
+    PlacePhotoRequest:
+      type: object
+      properties:
+        image:
+          type: string
+          format: binary
+        alt: {}
+        source:
+          oneOf:
+          - $ref: '#/components/schemas/SourceEnum'
+          - $ref: '#/components/schemas/BlankEnum'
+        credit:
+          type: string
+          maxLength: 255
+        sort_order:
+          type: integer
+          maximum: 2147483647
+          minimum: 0
+        is_cover:
+          type: boolean
+      required:
+      - image
+    PlaceStatusTz:
+      enum:
+      - active
+      - hidden
+      - closed
+      - draft
+      - published
+      type: string
+      description: |-
+        * `active` - active
+        * `hidden` - hidden
+        * `closed` - closed
+        * `draft` - draft
+        * `published` - published
+    ResolveReportNotFound:
+      type: object
+      properties:
+        detail:
+          type: string
+      required:
+      - detail
+    ResolveReportResponse:
+      type: object
+      properties:
+        detail:
+          type: string
+        report_id:
+          type: integer
+        status:
+          type: string
+      required:
+      - detail
+      - report_id
+      - status
+    Review:
+      type: object
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        user_id:
+          type: integer
+          readOnly: true
+        user_name:
+          type: string
+          readOnly: true
+        place:
+          type: integer
+          readOnly: true
+        rating:
+          type: integer
+          readOnly: true
+        text:
+          type: string
+          readOnly: true
+        lang:
+          allOf:
+          - $ref: '#/components/schemas/ReviewLang'
+          readOnly: true
+          title: Забони отзыв
+        status:
+          type: string
+          readOnly: true
+        reject_reason:
+          type: string
+          readOnly: true
+        photos:
+          type: array
+          items:
+            type: string
+            format: uri
+          readOnly: true
+        photo_objects:
+          type: array
+          items:
+            $ref: '#/components/schemas/ReviewPhoto'
+          readOnly: true
+        photo_urls:
+          type: array
+          items:
+            type: string
+            format: uri
+          readOnly: true
+        owner_reply:
+          type: string
+          readOnly: true
+        owner_reply_at:
+          type: string
+          format: date-time
+          readOnly: true
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+        likes:
+          type: integer
+          readOnly: true
+        likes_count:
+          type: integer
+          readOnly: true
+        is_liked:
+          type: boolean
+          readOnly: true
+      required:
+      - created_at
+      - id
+      - is_liked
+      - lang
+      - likes
+      - likes_count
+      - owner_reply
+      - owner_reply_at
+      - photo_objects
+      - photo_urls
+      - photos
+      - place
+      - rating
+      - reject_reason
+      - status
+      - text
+      - user_id
+      - user_name
+    ReviewCreateRequest:
+      type: object
+      properties:
+        rating:
+          type: integer
+          maximum: 5
+          minimum: 1
+        text:
+          type: string
+          minLength: 1
+          maxLength: 2000
+        lang:
+          allOf:
+          - $ref: '#/components/schemas/ReviewLang'
+          title: Забони отзыв
+        photos:
+          type: array
+          items:
+            type: string
+            format: binary
+          writeOnly: true
+          maxItems: 5
+      required:
+      - rating
+      - text
+    ReviewCreateResponse:
+      type: object
+      properties:
+        detail:
+          type: string
+        review:
+          $ref: '#/components/schemas/Review'
+      required:
+      - detail
+      - review
+    ReviewLang:
+      enum:
+      - ru
+      - tg
+      - en
+      type: string
+      description: |-
+        * `ru` - Русский
+        * `tg` - Тоҷикӣ
+        * `en` - English
+    ReviewLikeCreatedResponse:
+      type: object
+      properties:
+        detail:
+          type: string
+        likes_count:
+          type: integer
+        is_liked:
+          type: boolean
+      required:
+      - detail
+      - is_liked
+      - likes_count
+    ReviewLikeResponse:
+      type: object
+      properties:
+        detail:
+          type: string
+        likes_count:
+          type: integer
+        is_liked:
+          type: boolean
+      required:
+      - detail
+      - is_liked
+      - likes_count
+    ReviewPhoto:
+      type: object
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        image:
+          type: string
+          format: uri
+        thumbnail:
+          type: string
+          format: uri
+          nullable: true
+          readOnly: true
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+      required:
+      - created_at
+      - id
+      - image
+      - thumbnail
+    ReviewPhotoUploadError:
+      type: object
+      properties:
+        detail:
+          type: string
+      required:
+      - detail
+    ReviewPhotoUploadForbidden:
+      type: object
+      properties:
+        detail:
+          type: string
+      required:
+      - detail
+    ReviewPhotoUploadNotFound:
+      type: object
+      properties:
+        detail:
+          type: string
+      required:
+      - detail
+    ReviewPhotoUploadRequestRequest:
+      type: object
+      properties:
+        image:
+          type: string
+          format: binary
+      required:
+      - image
+    ReviewPhotoUploadResponse:
+      type: object
+      properties:
+        id:
+          type: integer
+        image:
+          type: string
+          format: uri
+        created_at:
+          type: string
+          format: date-time
+      required:
+      - created_at
+      - id
+      - image
+    ReviewReportRequest:
+      type: object
+      properties:
+        reason:
+          type: string
+          minLength: 1
+          maxLength: 500
+      required:
+      - reason
+    ReviewReportResponse:
+      type: object
+      properties:
+        detail:
+          type: string
+        report_id:
+          type: integer
+      required:
+      - detail
+      - report_id
+    ReviewUpdateResponse:
+      type: object
+      properties:
+        detail:
+          type: string
+        review:
+          $ref: '#/components/schemas/Review'
+      required:
+      - detail
+      - review
+    RoleEnum:
+      enum:
+      - user
+      - owner
+      - moderator
+      - admin
+      type: string
+      description: |-
+        * `user` - Корбари оддӣ
+        * `owner` - Соҳиби ҷой
+        * `moderator` - Модератор
+        * `admin` - Админ
+    SimilarPlacesResponse:
+      type: object
+      properties:
+        place:
+          type: string
+        count:
+          type: integer
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/PlaceList'
+      required:
+      - count
+      - place
+      - results
+    SourceEnum:
+      enum:
+      - 2gis
+      - user
+      - owner
+      type: string
+      description: |-
+        * `2gis` - 2GIS
+        * `user` - Пользователь
+        * `owner` - Владелец
+    TokenRefresh:
+      type: object
+      properties:
+        access:
+          type: string
+          readOnly: true
+      required:
+      - access
+    TokenRefreshRequest:
+      type: object
+      properties:
+        refresh:
+          type: string
+          writeOnly: true
+          minLength: 1
+      required:
+      - refresh
+    UploadImageError:
+      type: object
+      properties:
+        detail:
+          type: string
+      required:
+      - detail
+    UploadImageRequestRequest:
+      type: object
+      properties:
+        file:
+          type: string
+          format: binary
+      required:
+      - file
+    UploadImageResponse:
+      type: object
+      properties:
+        url:
+          type: string
+          format: uri
+        filename:
+          type: string
+        format:
+          type: string
+      required:
+      - filename
+      - format
+      - url
+    UserLanguage:
+      enum:
+      - ru
+      - tg
+      - en
+      type: string
+      description: |-
+        * `ru` - ru
+        * `tg` - tg
+        * `en` - en
+    UserProfile:
+      type: object
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        phone:
+          type: string
+          readOnly: true
+          title: Телефон
+        name:
+          type: string
+          readOnly: true
+          title: Имя
+        language:
+          allOf:
+          - $ref: '#/components/schemas/UserProfileLanguageEnum'
+          readOnly: true
+          title: Язык
+        lang:
+          type: string
+          readOnly: true
+        avatar:
+          type: string
+          format: uri
+          nullable: true
+          readOnly: true
+        role:
+          allOf:
+          - $ref: '#/components/schemas/RoleEnum'
+          readOnly: true
+          title: Нақш
+      required:
+      - avatar
+      - id
+      - lang
+      - language
+      - name
+      - phone
+      - role
+    UserProfileLanguageEnum:
+      enum:
+      - ru
+      - tg
+      - en
+      type: string
+      description: |-
+        * `ru` - Русский
+        * `tg` - Таджикский
+        * `en` - English
+  securitySchemes:
+    jwtAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+tags:
+- name: Authentication
+  description: Воридшавӣ, дархости код, тасдиқ ва навсозии JWT.
+- name: Profile
+  description: 'Профили корбар: гирифтан ва таҳрир кардан.'
+- name: Categories
+  description: Категорияҳои ҷойҳо.
+- name: Places
+  description: Рӯйхат, маълумот, харита ва ҷойҳои монанд.
+- name: Search & Home
+  description: Ҷустуҷӯ, пешниҳодҳо ва саҳифаи асосӣ.
+- name: Reviews
+  description: Сохтан, хондан, таҳрир, лайк ва шикояти отзывҳо.
+- name: Favorites
+  description: Ҷойҳои дӯстдоштаи корбар.
+- name: Claims
+  description: Дархостҳои тасдиқи соҳиби ҷой.
+- name: Notifications
+  description: Огоҳиномаҳои корбар.
+- name: Uploads
+  description: Бор кардани аксҳо.
+- name: Owner - Places
+  description: Идоракунии ҷойҳои худ.
+- name: Owner - Photos
+  description: Идоракунии аксҳои ҷойҳои худ.
+- name: Owner - Reviews
+  description: Ҷавоб додан ба отзывҳо.
+- name: Admin - Authentication
+  description: Воридшавии маъмур бо телефон ва парол.
+- name: Admin - Users
+  description: Идоракунии корбарон.
+- name: Admin - Categories
+  description: Идоракунии категорияҳо.
+- name: Admin - Places
+  description: Идоракунии ҷойҳо ва аксҳои онҳо.
+- name: Admin - Claims
+  description: Баррасӣ ва тасдиқи дархостҳои соҳиби ҷой.
+- name: Admin - Reviews
+  description: Модератсия ва тасдиқи отзывҳо.
+- name: Admin - Reports
+  description: Шикоятҳо аз отзывҳо ва ҳалли онҳо.
+- name: Admin - Imports
+  description: Импорти ҷойҳо аз 2GIS.
